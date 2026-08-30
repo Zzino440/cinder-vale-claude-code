@@ -19,6 +19,7 @@
   let alchPick = [];
   let shopTab = 'buy';
   let dlgNpc = null, dlgNode = null;
+  let debugTab = 'respawn';
 
   const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -167,7 +168,7 @@
     const st = p.stats;
 
     return `
-      <div class="tabs" style="padding:0 0 8px;background:transparent">
+      <div class="tabs inv-filter-bar">
         ${filters.map(f => `<div class="tab${invTab === f[0] ? ' active' : ''}" data-act="filter" data-f="${f[0]}">${f[1]}</div>`).join('')}
       </div>
       <div class="stat-line"><span>Carico</span><span class="v ${st.encumbered ? 'neg' : ''}">${st.weight} / ${st.carry}</span></div>
@@ -474,7 +475,69 @@
       <div class="btn-row" style="margin-top:8px">
         <button data-act="wipe" style="border-color:var(--blood);color:var(--blood)">Cancella salvataggio</button>
       </div>
-      <div class="hint">Uccisioni: ${G.p.kills} · Morti: ${G.p.deaths} · Tempo: ${Math.floor(G.p.playtime / 60)} min</div>`;
+      <div class="hint">Uccisioni: ${G.p.kills} · Morti: ${G.p.deaths} · Tempo: ${Math.floor(G.p.playtime / 60)} min</div>
+
+      <div class="sect">Debug</div>
+      <div class="seg" style="margin-bottom:10px">
+        ${debugSections.map(x => `<button class="${debugTab === x[0] ? 'on' : ''}" data-act="debugtab" data-t="${x[0]}">${x[1]}</button>`).join('')}
+      </div>
+      ${viewDebugPanel()}`;
+  }
+
+  /* ---------------- Debug ---------------- */
+  const debugSections = [['respawn', 'Respawn']];
+
+  function viewDebugPanel() {
+    if (debugTab === 'respawn') return viewDebugRespawn();
+    return '';
+  }
+
+  const DEBUG_TIMERS = [
+    ['enemyRespawnSeconds', 'Nemici comuni', 300],
+    ['chestRespawnSeconds', 'Forzieri', 600],
+    ['shrineRespawnSeconds', 'Santuari', 600]
+  ];
+
+  function viewDebugRespawn() {
+    const dbg = G.settings.debug || (G.settings.debug = {});
+    const inZone = !!G.zone && !G.zone.def.safe;
+
+    const rows = DEBUG_TIMERS.map(([key, label, def]) => {
+      const v = dbg[key] != null ? dbg[key] : def;
+      return `<div class="opt-row">
+        <div class="lbl">${label}</div>
+        <input class="slider" type="number" min="0" step="5" value="${v}" data-act="dbgsecs" data-key="${key}" style="width:80px">
+        <span style="margin-left:8px;color:var(--muted)">sec · ${(v / 60).toFixed(1)} min</span>
+      </div>`;
+    }).join('');
+
+    return `
+      <div class="opt-row">
+        <div class="lbl">Tempo di respawn
+          <small>Secondi reali da quando lo usi/uccidi/svuoti. I nemici unici e i boss restano
+          permanenti per ora: li tratteremo a parte più avanti.</small>
+        </div>
+      </div>
+      ${rows}
+
+      <div class="opt-row" style="margin-top:10px">
+        <div class="lbl">Respawn forzato — zona corrente
+          <small>Ricostruisce subito i contenuti scelti, senza aspettare il timer.</small>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button data-act="dbgforcerespawn" data-scope="all" ${inZone ? '' : 'disabled'}>Tutto (esclusi boss)</button>
+      </div>
+      <div class="btn-row" style="margin-top:6px">
+        <button data-act="dbgforcerespawn" data-scope="common" ${inZone ? '' : 'disabled'}>Nemici comuni</button>
+        <button data-act="dbgforcerespawn" data-scope="chests" ${inZone ? '' : 'disabled'}>Forzieri</button>
+        <button data-act="dbgforcerespawn" data-scope="shrines" ${inZone ? '' : 'disabled'}>Santuari</button>
+      </div>
+      <div class="btn-row" style="margin-top:6px">
+        <button data-act="dbgforcerespawn" data-scope="epic" ${inZone ? '' : 'disabled'}>Epici/Boss</button>
+      </div>
+      ${inZone ? '<div class="hint">Attenzione: i nemici unici rigenerati possono far riottenere il loro drop di missione.</div>'
+                : '<div class="hint">Non disponibile: sei fuori partita o in una zona sicura (senza nemici).</div>'}`;
   }
 
   /* ================================================================
@@ -787,6 +850,16 @@
       }
       case 'respawn': G.respawn(); break;
 
+      /* Debug */
+      case 'debugtab': debugTab = t.dataset.t; render(); break;
+      case 'dbgforcerespawn': {
+        const labels = { all: 'Tutto (esclusi boss)', common: 'Nemici comuni', chests: 'Forzieri', shrines: 'Santuari', epic: 'Epici/Boss' };
+        G.debugForceRespawn(t.dataset.scope);
+        toast('Rigenerato: ' + (labels[t.dataset.scope] || t.dataset.scope), 'gold');
+        render();
+        break;
+      }
+
       /* Dialogo */
       case 'dlgopt': {
         const node = ctxData.node;
@@ -877,9 +950,14 @@
   /* Slider del volume */
   document.addEventListener('input', (ev) => {
     const t = ev.target;
-    if (t && t.dataset && t.dataset.act === 'volume') {
+    if (!t || !t.dataset) return;
+    if (t.dataset.act === 'volume') {
       G.settings.volume = parseInt(t.value, 10) / 100;
       G.applyAudioSettings();
+      G.saveSettings();
+    } else if (t.dataset.act === 'dbgsecs') {
+      const v = Math.max(0, parseInt(t.value, 10) || 0);
+      (G.settings.debug || (G.settings.debug = {}))[t.dataset.key] = v;
       G.saveSettings();
     }
   });

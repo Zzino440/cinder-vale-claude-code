@@ -16,6 +16,8 @@
   const SET_KEY = 'cindervale.settings.v1';
   const ENTRY_SAFE_RADIUS = 280;
   const ENTRY_ORIENT_SECONDS = 2;
+  const CHEST_RESPAWN_SECONDS = 600;
+  const SHRINE_RESPAWN_SECONDS = 600;
 
   /* Stato globale della partita */
   const G = {
@@ -28,7 +30,10 @@
     interactTarget: null, interactLabel: '',
     autosaveT: 0, tipT: 12,
     fpsAcc: 0, fpsFrames: 0, lastFps: 60, lowFpsRun: 0, autoQuality: null,
-    settings: { scheme: 'auto', volume: 0.6, music: true, blockMode: 'auto', quality: 'auto' }
+    settings: {
+      scheme: 'auto', volume: 0.6, music: true, blockMode: 'auto', quality: 'auto',
+      debug: { enemyRespawnSeconds: 300, chestRespawnSeconds: 600, shrineRespawnSeconds: 600 }
+    }
   };
 
   /* ================= AVVIO ================= */
@@ -96,13 +101,16 @@
     G.world = G.worldAll.zones[zoneId];
     if (!G.world.shrines) G.world.shrines = {};
 
-    /* Applica ciò che è già successo qui */
-    for (const c of z.chests) if (G.world.chests[c.key]) c.open = true;
+    /* Applica ciò che è già successo qui. Forzieri e santuari, come i nemici
+       comuni, restano "usati" solo fino a un timestamp: passato quello,
+       tornano disponibili da soli al prossimo ingresso in zona. */
+    const nowT = Date.now() / 1000;
+    for (const c of z.chests) if (G.world.chests[c.key] > nowT) c.open = true;
     for (const n of z.nodes) {
       const t = G.world.nodes[n.key];
-      if (t) n.spent = Math.max(0, t - Date.now() / 1000);
+      if (t) n.spent = Math.max(0, t - nowT);
     }
-    for (const sh of z.shrines) if (G.world.shrines[sh.key]) sh.used = true;
+    for (const sh of z.shrines) if (G.world.shrines[sh.key] > nowT) sh.used = true;
 
     G.enemies = z.def.safe ? [] : E.spawnZone(z, G.world, G.p.level, {
       x: pos.x, y: pos.y, radius: ENTRY_SAFE_RADIUS
@@ -628,7 +636,7 @@
       case 'chest': {
         const c = t.ref;
         c.open = true;
-        G.world.chests[c.key] = true;
+        G.world.chests[c.key] = Date.now() / 1000 + debugSeconds('chestRespawnSeconds', CHEST_RESPAWN_SECONDS);
         CV.Audio.play('chest');
         const items = CV.Loot.fromChest(c.table, G.rng);
         for (const it of items) {
@@ -659,7 +667,7 @@
         const sh = t.ref;
         if (sh.used) { CV.UI.toast('Il santuario è già stato onorato.'); break; }
         sh.used = true;
-        G.world.shrines[sh.key] = true;
+        G.world.shrines[sh.key] = Date.now() / 1000 + debugSeconds('shrineRespawnSeconds', SHRINE_RESPAWN_SECONDS);
         const boons = ['fury', 'stone', 'swift', 'regen'];
         const key = G.rng.pick(boons);
         P.applyEffect(p, key, D.effects[key].base, D.effects[key].dur);
@@ -898,6 +906,36 @@
   G.refreshMusic = refreshMusic;
   G.applyQuality = applyQuality;
   G.respawn = respawn;
+
+  /* ---------------- Debug ---------------- */
+  /* Valore di debug se impostato dal menu, altrimenti il default di bilanciamento.
+     Esposta su G perché entities.js la usa (killEnemy riceve G). */
+  function debugSeconds(key, fallback) {
+    const d = G.settings.debug;
+    return (d && d[key] != null) ? d[key] : fallback;
+  }
+  G.debugSeconds = debugSeconds;
+
+  /* Forza il respawn dei contenuti della zona corrente senza aspettare il timer.
+     scope: 'common' (nemici comuni) | 'epic' (unici/boss) | 'chests' | 'shrines'
+     | 'all' (comuni + forzieri + santuari, MAI i boss: quelli restano una
+     scelta a parte finché non decidiamo diversamente per la narrativa). */
+  function debugForceRespawn(scope) {
+    if (!G.zone || !G.world || G.zone.def.safe) return;
+    if (scope === 'common' || scope === 'epic' || scope === 'all') {
+      G.enemies = E.forceRespawn(G.zone, G.world, G.p.level, {
+        x: G.pe.x, y: G.pe.y, radius: ENTRY_SAFE_RADIUS
+      }, scope === 'all' ? 'common' : scope);
+    }
+    if (scope === 'chests' || scope === 'all') {
+      for (const c of G.zone.chests) { c.open = false; delete G.world.chests[c.key]; }
+    }
+    if (scope === 'shrines' || scope === 'all') {
+      for (const sh of G.zone.shrines) { sh.used = false; delete G.world.shrines[sh.key]; }
+    }
+  }
+  G.debugForceRespawn = debugForceRespawn;
+
   /* Utili anche dalla console del browser per provare il gioco */
   G.enterZone = enterZone;
   G.doInteract = doInteract;

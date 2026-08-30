@@ -20,6 +20,20 @@
      ed era la causa principale delle parate "dalla parte sbagliata". */
   E.BLOCK_ARC = 2.094;
 
+  /* Tempo (in secondi reali) prima che un nemico comune ripopoli il suo
+     punto. I nemici unici (named/boss) restano uccisi per sempre: la
+     voce in `killed` per loro è `true`, non un timestamp. */
+  const ENEMY_RESPAWN_SECONDS = 300;
+
+  /* `killed[key]` vale `true` (permanente) oppure un timestamp Unix:
+     "morto fino ad allora". Nessuna voce = mai ucciso. */
+  function isDead(killed, key) {
+    const v = killed[key];
+    if (!v) return false;
+    if (v === true) return true;
+    return v > Date.now() / 1000;
+  }
+
   /* ================= GIOCATORE ================= */
   E.makePlayer = function (p, x, y) {
     return {
@@ -72,7 +86,7 @@
 
     (z.namedDefs || []).forEach((n, i) => {
       const key = z.id + ':named' + i;
-      if (killed[key]) return;
+      if (isDead(killed, key)) return;
       const e = E.makeEnemy(n.id, n.tx * W.T + 8, n.ty * W.T + 8, {
         key: key, name: n.name, hpMult: n.hpMult, dmgMult: n.dmgMult,
         drop: n.drop, boostLoot: n.boostLoot, boss: n.boss, levelScale: n.boss ? 0 : levelScale
@@ -83,7 +97,7 @@
     (z.spawnDefs || []).forEach((s, si) => {
       for (let i = 0; i < s.count; i++) {
         const key = z.id + ':' + si + ':' + i;
-        if (killed[key]) continue;
+        if (isDead(killed, key)) continue;
         const spot = W.findFreeSpot(
           z, rng,
           safeArea && safeArea.x,
@@ -99,7 +113,7 @@
     /* Nemici piazzati dai siti (composizioni, non posizioni a caso):
        vedi W.placeSites. Gia in posizione, gia con il ruolo risolto. */
     (z.siteSpawns || []).forEach((s) => {
-      if (killed[s.key]) return;
+      if (isDead(killed, s.key)) return;
       const e = E.makeEnemy(s.id, s.x, s.y, {
         key: s.key, hpMult: s.hpMult, dmgMult: s.dmgMult,
         sightMult: s.sightMult, levelScale: levelScale
@@ -107,6 +121,23 @@
       if (e) out.push(e);
     });
     return out;
+  };
+
+  /* Strumento di debug: libera dalla mappa `killed` le chiavi dello scope
+     richiesto e ripopola la zona da capo. 'epic' = i named/boss (z.namedDefs),
+     'common' = densità di zona + composizioni dei siti, 'all' = entrambi. */
+  E.forceRespawn = function (z, worldState, playerLevel, safeArea, scope) {
+    const killed = (worldState.killed = worldState.killed || {});
+    if (scope === 'epic' || scope === 'all') {
+      (z.namedDefs || []).forEach((n, i) => { delete killed[z.id + ':named' + i]; });
+    }
+    if (scope === 'common' || scope === 'all') {
+      (z.spawnDefs || []).forEach((s, si) => {
+        for (let i = 0; i < s.count; i++) delete killed[z.id + ':' + si + ':' + i];
+      });
+      (z.siteSpawns || []).forEach((s) => { delete killed[s.key]; });
+    }
+    return E.spawnZone(z, worldState, playerLevel, safeArea);
   };
 
   /* ================= PROIETTILI ================= */
@@ -225,8 +256,13 @@
       G.drops.push({ item: it, x: e.x + Math.cos(a) * d, y: e.y + Math.sin(a) * d, t: 0, vy: -30 });
     }
 
-    /* Registra la morte così il nemico non ricompare */
-    if (e.key) G.world.killed[e.key] = true;
+    /* Registra la morte: i nemici unici (named/boss) restano fuori per
+       sempre, quelli comuni ripopolano il loro punto dopo un po'.
+       Il tempo è regolabile dal menu di debug (G.settings.debug). */
+    if (e.key) {
+      const respawnSecs = G.debugSeconds('enemyRespawnSeconds', ENEMY_RESPAWN_SECONDS);
+      G.world.killed[e.key] = (e.elite || e.boss) ? true : Date.now() / 1000 + respawnSecs;
+    }
 
     const evs2 = [];
     CV.Quests.onKill(p, e.defId, evs2);
@@ -629,7 +665,7 @@
      dell innesco). Rispetta la stessa persistenza killed degli altri. */
   E.spawnAmbushOne = function (s, worldState, playerLevel) {
     const killed = worldState.killed || {};
-    if (killed[s.key]) return null;
+    if (isDead(killed, s.key)) return null;
     const levelScale = Math.max(0, (playerLevel - 1) * 0.06);
     return E.makeEnemy(s.id, s.x, s.y, {
       key: s.key, hpMult: s.hpMult, dmgMult: s.dmgMult,
