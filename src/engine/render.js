@@ -13,6 +13,9 @@
   const P = CV.Player;
   const M = CV.M;
   const T = 16;
+  /* Intensità del rilievo del terreno (passata di luce macro in
+     buildZoneCanvas). Un solo numero per tarare l'intero effetto. */
+  const RELIEF = 0.55;
 
   const R = {
     canvas: null, ctx: null,
@@ -142,6 +145,38 @@
     [1, -1, 4], [1, 1, 5], [-1, 1, 6], [-1, -1, 7]
   ];
 
+  /* Mappa di luce del terreno: un pixel per tile. Combina la pendenza
+     ricavata da `z.elev` (luce fissa da nord-ovest, coerente col
+     gradiente degli sprite in art.js) con un rumore a bassa frequenza
+     che aggiunge chiazze larghe di luce e ombra — la modulazione su
+     scala di mappa che manca del tutto se si guarda solo la pendenza
+     tile per tile. Ogni pixel è bianco (schiarisce) o nero (scurisce):
+     lo smoothing acceso alla stesura fonde i due in una sfumatura. */
+  function buildRelief(z) {
+    const w = z.w, h = z.h;
+    const cv = A.makeCanvas(w, h);
+    const rctx = cv.getContext('2d');
+    const img = rctx.createImageData(w, h);
+    const d = img.data;
+    const elev = z.elev;
+    const getE = (x, y) => elev[M.clamp(y, 0, h - 1) * w + M.clamp(x, 0, w - 1)];
+    const seed = z.def.seed + 8100;
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const slope = ((getE(x - 1, y) - getE(x + 1, y)) + (getE(x, y - 1) - getE(x, y + 1))) / 255;
+        const macro = CV.noise.fbm(x / 9, y / 9, seed, 2) * 2 - 1;
+        const s = M.clamp(slope * 0.5 + macro * 0.4, -1, 1);
+        const i = (y * w + x) * 4;
+        const a = Math.round(Math.abs(s) * RELIEF * 90);
+        if (s >= 0) { d[i] = 255; d[i + 1] = 255; d[i + 2] = 255; d[i + 3] = a; }
+        else { d[i + 3] = a; }
+      }
+    }
+    rctx.putImageData(img, 0, 0);
+    return cv;
+  }
+
   function buildZoneCanvas(z) {
     if (R.zoneId === z.id && R.zoneCanvas) return R.zoneCanvas;
     const atlas = A.getTileAtlas();
@@ -194,6 +229,17 @@
         }
       }
     }
+
+    /* Passata 2.5: rilievo del terreno. Un pixel per tile, con lo
+       smoothing acceso quando viene steso: il browser lo trasforma in una
+       sfumatura continua invece che in un mosaico quadrettato, e questo
+       attenua anche i confini a scalino fra terreni diversi lasciati
+       dalle passate precedenti. È la luce che manca alle zone a cielo
+       aperto: senza, ogni pixel della mappa riceve la stessa luce e il
+       terreno legge come una texture invece che come un luogo. */
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(buildRelief(z), 0, 0, z.w, z.h, 0, 0, z.pxW, z.pxH);
+    ctx.imageSmoothingEnabled = false;
 
     /* Passata 3: i muri prendono forma. Un muro non è un rettangolo di
        colore: ha una cima illuminata, spigoli, e una faccia frontale in
@@ -274,6 +320,27 @@
       }
     }
 
+    /* Passata 5: ombre proiettate. Solo dagli oggetti solidi (hanno `col`):
+       alberi, rocce, case, tronchi — non ogni ciuffo d'erba, o il bosco
+       diventerebbe un pulviscolo di macchie invece che restare leggibile.
+       Un'ellisse schiacciata ancorata al punto di contatto col terreno,
+       non una copia deformata dello sprite: un top-down non ha un vero
+       "profilo" da proiettare, e deformare l'intera sagoma la stacca
+       visibilmente dalla base quando l'oggetto è alto (è quello che
+       succedeva prima). L'ellisse resta sempre attaccata, qualunque sia
+       la forma o l'altezza dell'immagine sopra. Baked col terreno: a
+       gioco avviato costa zero, e finisce sotto tutto — giocatore
+       compreso, che ci cammina sopra. */
+    ctx.globalAlpha = 0.20;
+    ctx.fillStyle = '#050308';
+    for (const p of z.props) {
+      if (!p.col) continue;
+      const rx = Math.max(7, p.col.w * 0.85);
+      const ry = Math.max(3, rx * 0.4);
+      A.ellip(ctx, Math.round(p.x + rx * 0.22), Math.round(p.y + ry * 0.35), Math.round(rx), Math.round(ry));
+    }
+    ctx.globalAlpha = 1;
+
     /* Memorizza dove sta l'acqua: il renderer la anima a ogni fotogramma */
     R.waterTiles = [];
     for (let ty = 0; ty < z.h; ty++) {
@@ -346,6 +413,7 @@
     drawLiquids(b, ox, oy);
     drawDecals(b, G, ox, oy);
     drawGroundFog(b, ox, oy);
+    drawPlaneVeil(b, G.zone.def.biome);
 
     /* Raccolta di tutto ciò che va ordinato per profondità */
     const list = [];
@@ -575,6 +643,19 @@
     }
   }
 
+  /* Vela leggerissima sul solo terreno, prima che entità e prop vengano
+     disegnati sopra: schiaccia il fondo verso il colore medio del bioma,
+     così chi cammina sul terreno resta a contrasto pieno invece di
+     confondersi con esso. Riusa la tabella GRADE già usata da
+     applyGrade(), senza introdurne una seconda. */
+  function drawPlaneVeil(b, biome) {
+    const g = GRADE[biome] || GRADE.moor;
+    b.globalAlpha = 0.10;
+    b.fillStyle = g.shadow;
+    b.fillRect(0, 0, R.viewW, R.viewH);
+    b.globalAlpha = 1;
+  }
+
   /* ---------------- Elementi del mondo ---------------- */
   /* Ombra morbida: un'ellisse sfumata pre-renderizzata, scalata al volo.
      Molto più naturale del disco pixelato di prima. */
@@ -583,6 +664,13 @@
     const ww = w * 1.7, hh = Math.max(4, h * 1.7);
     b.imageSmoothingEnabled = true;
     b.drawImage(t, Math.round(x - ww / 2), Math.round(y - hh / 2), Math.round(ww), Math.round(hh));
+    /* Ombra di contatto: stretta, scura, senza sfumatura. È quello che fa
+       smettere gli sprite di sembrare sospesi sopra il terreno invece che
+       poggiati sopra. */
+    b.globalAlpha = 0.5;
+    b.fillStyle = '#050308';
+    A.ellip(b, Math.round(x), Math.round(y), Math.round(w * 0.28), Math.round(h * 0.4));
+    b.globalAlpha = 1;
     b.imageSmoothingEnabled = false;
   }
 
@@ -770,6 +858,18 @@
 
     shadow(b, x, y + e.radius - 1, e.radius * 2, 5);
 
+    /* Alone d'affisso: identifica un'élite a distanza, prima ancora di
+       leggerne il nome sopra la barra vita. */
+    if (e.affixAura) {
+      b.globalAlpha = 0.55 + Math.sin(R.time * 3.2) * 0.12;
+      b.strokeStyle = e.affixAura;
+      b.lineWidth = 2;
+      b.beginPath();
+      b.ellipse(x, y + e.radius - 1, e.radius + 3, (e.radius + 3) * 0.5, 0, 0, Math.PI * 2);
+      b.stroke();
+      b.globalAlpha = 1;
+    }
+
     /* Anello sul bersaglio agganciato: dice a colpo d'occhio chi colpirai.
        Senza questo, l'assistenza di mira lavora ma il giocatore non lo sa. */
     if (e === G.pe.target && !G.pe.dead) {
@@ -794,13 +894,16 @@
        nell'ultimo terzo pulsa e si contorna di bianco: l'occhio coglie
        il cambio di colore molto prima di stimare un riempimento. */
     if (e.state === 'telegraph') {
-      const f = Math.min(1, e.stateT / e.def.telegraph);
+      const tgMult = (e.affixMods && e.affixMods.telegraphMult) || 1;
+      const f = Math.min(1, e.stateT / (e.def.telegraph * tgMult));
       const dir = Math.atan2(G.pe.y - e.y, G.pe.x - e.x);
       const reach = e.def.ai === 'ranged' ? 26 : e.def.attackRange + 8;
       const imminent = f > 0.66;
       const pulse = imminent ? (Math.sin(R.time * 34) * 0.5 + 0.5) : 0;
+      /* Il nemico cinereo si legge peggio: il proprio telegrafo è più fioco. */
+      const readability = (e.affixMods && e.affixMods.ashCloud) ? 0.6 : 1;
 
-      b.globalAlpha = 0.18 + f * 0.34 + pulse * 0.22;
+      b.globalAlpha = (0.18 + f * 0.34 + pulse * 0.22) * readability;
       b.fillStyle = imminent ? (pulse > 0.5 ? '#ffd166' : '#ff8a5c') : '#c33636';
       b.beginPath();
       b.moveTo(x, y);
@@ -809,7 +912,7 @@
       b.fill();
 
       if (imminent) {
-        b.globalAlpha = 0.55 + pulse * 0.45;
+        b.globalAlpha = (0.55 + pulse * 0.45) * readability;
         b.strokeStyle = '#fff3d0';
         b.lineWidth = 1;
         b.stroke();
@@ -841,7 +944,8 @@
       const k = e.hitT / 0.26;
       sx = 1 + k * 0.30; sy = 1 - k * 0.22;
     } else if (e.state === 'telegraph') {
-      const f = Math.min(1, e.stateT / Math.max(0.01, e.def.telegraph));
+      const tgMult2 = (e.affixMods && e.affixMods.telegraphMult) || 1;
+      const f = Math.min(1, e.stateT / Math.max(0.01, e.def.telegraph * tgMult2));
       sx = 1 + f * 0.14; sy = 1 - f * 0.13;
     } else if (e.state === 'attack' && e.stateT < 0.18) {
       const f = 1 - e.stateT / 0.18;

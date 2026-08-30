@@ -25,7 +25,8 @@
         { kind: 'forge', tx: 31, ty: 22 },
         { kind: 'cauldron', tx: 15, ty: 22 },
         { kind: 'campfire', tx: 24, ty: 27 },
-        { kind: 'sign', tx: 24, ty: 41, text: 'ASHFORD — ultimo focolare della valle' }
+        { kind: 'sign', tx: 24, ty: 41, text: 'ASHFORD — ultimo focolare della valle' },
+        { kind: 'noticeboard', tx: 24, ty: 15 }
       ],
       chests: [{ tx: 34, ty: 15, table: 'poor' }]
     },

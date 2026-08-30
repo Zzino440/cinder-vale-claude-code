@@ -13,12 +13,15 @@
   const H = {
     zoneBanner: 0, zoneName: '', zoneSub: '',
     bossRef: null, bossT: 0,
-    tipText: '', tipT: 0
+    tipText: '', tipT: 0,
+    keyHintsT: 0,
+    site: null            /* { name, done, total } quando si è dentro un sito attivo */
   };
 
   function showZone(name, sub) { H.zoneName = name; H.zoneSub = sub || ''; H.zoneBanner = 3.2; }
   function showTip(text) { H.tipText = text; H.tipT = 4.5; }
   function setBoss(e) { H.bossRef = e; H.bossT = e ? 4 : 0; }
+  function setSite(obj) { H.site = obj; }
 
   /* ---------------- Primitive di disegno ---------------- */
   function roundRect(ctx, x, y, w, h, r) {
@@ -32,17 +35,29 @@
   }
 
   function bar(ctx, x, y, w, h, frac, color, bg, label) {
+    /* Ombra morbida sotto il pannello: lo stacca dal mondo dietro invece
+       di lasciarlo incollato allo sfondo. */
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetY = 2;
     ctx.fillStyle = 'rgba(6,4,10,0.75)';
     roundRect(ctx, x - 1, y - 1, w + 2, h + 2, 3); ctx.fill();
+    ctx.restore();
     ctx.fillStyle = bg;
     roundRect(ctx, x, y, w, h, 2); ctx.fill();
     const fw = Math.max(0, Math.min(1, frac)) * w;
     if (fw > 0) {
       ctx.fillStyle = color;
       roundRect(ctx, x, y, fw, h, 2); ctx.fill();
-      /* Riflesso in alto: dà volume alla barra */
-      ctx.fillStyle = 'rgba(255,255,255,0.16)';
-      roundRect(ctx, x, y, fw, Math.max(1, h * 0.35), 2); ctx.fill();
+      /* Riflesso verticale vero, non solo una fascia piatta in cima: dà
+         alla barra una curvatura invece di un bordo netto a metà altezza. */
+      const g = ctx.createLinearGradient(0, y, 0, y + h);
+      g.addColorStop(0, 'rgba(255,255,255,0.34)');
+      g.addColorStop(0.5, 'rgba(255,255,255,0.04)');
+      g.addColorStop(1, 'rgba(0,0,0,0.12)');
+      ctx.fillStyle = g;
+      roundRect(ctx, x, y, fw, h, 2); ctx.fill();
     }
     if (label) {
       ctx.font = 'bold 9px ui-monospace, monospace';
@@ -206,8 +221,8 @@
     const bx = ins.left + 12, by = ins.top + 14;
     const bw = Math.min(150, W * 0.42);
     bar(ctx, bx, by, bw, 9, p.hp / p.stats.maxHp, '#c33636', 'rgba(40,16,16,0.85)');
-    bar(ctx, bx, by + 13, bw * 0.86, 6, p.sp / p.stats.maxSp, '#7cc46a', 'rgba(20,36,18,0.85)');
-    bar(ctx, bx, by + 22, bw * 0.86, 6, p.mp / p.stats.maxMp, '#6fb3ff', 'rgba(16,26,44,0.85)');
+    bar(ctx, bx, by + 13, bw, 6, p.sp / p.stats.maxSp, '#7cc46a', 'rgba(20,36,18,0.85)');
+    bar(ctx, bx, by + 22, bw, 6, p.mp / p.stats.maxMp, '#6fb3ff', 'rgba(16,26,44,0.85)');
 
     text(ctx, Math.ceil(p.hp) + '/' + p.stats.maxHp, bx + bw - 4, by + 4.5,
       { size: 9, align: 'right', color: 'rgba(255,255,255,0.7)', mono: true, outlineW: 2 });
@@ -241,14 +256,26 @@
       }
     }
 
-    /* ---------- Obiettivo di missione ---------- */
+    /* ---------- Obiettivo di missione e di sito ----------
+       Il sito (se attivo) si impila sopra la missione invece di
+       sostituirla: sono due domande diverse ("cosa sto facendo qui
+       adesso" e "cosa sto facendo in generale") e in un accampamento
+       durante una missione servono entrambe. */
     const activeQ = currentObjective(p);
-    if (activeQ) {
+    if (activeQ || H.site) {
       const qy = Hh - ins.bottom - 18;
-      text(ctx, '❖ ' + activeQ.name, ins.left + 12, qy - 15, { size: 11, color: '#ffd166' });
-      const prog = CV.Quests.progressText(p, activeQ.id);
-      text(ctx, activeQ.text + (prog ? '  ' + prog : ''), ins.left + 12, qy,
-        { size: 10, color: 'rgba(215,210,224,0.75)' });
+      if (H.site) {
+        const sy = activeQ ? qy - 30 : qy;
+        text(ctx, '» ' + H.site.name, ins.left + 12, sy - 15, { size: 11, color: '#f06c3a' });
+        text(ctx, 'Sgombera i nemici  ' + H.site.done + ' / ' + H.site.total, ins.left + 12, sy,
+          { size: 10, color: 'rgba(215,210,224,0.75)' });
+      }
+      if (activeQ) {
+        text(ctx, '❖ ' + activeQ.name, ins.left + 12, qy - 15, { size: 11, color: '#ffd166' });
+        const prog = CV.Quests.progressText(p, activeQ.id);
+        text(ctx, activeQ.text + (prog ? '  ' + prog : ''), ins.left + 12, qy,
+          { size: 10, color: 'rgba(215,210,224,0.75)' });
+      }
     }
 
     /* ---------- Barra del boss ---------- */
@@ -268,6 +295,17 @@
       const a = M.clamp(H.zoneBanner > 2.6 ? (3.2 - H.zoneBanner) / 0.6 : Math.min(1, H.zoneBanner / 0.8), 0, 1);
       ctx.save();
       ctx.globalAlpha = a;
+      /* Due filetti sfumati sopra e sotto il titolo: trasformano un testo
+         che galleggia in un momento, la prima impressione della zona. */
+      const ly = Hh * 0.26 - 16, lw = Math.min(220, W * 0.5);
+      for (const y of [ly, ly + 46]) {
+        const g = ctx.createLinearGradient(W / 2 - lw / 2, 0, W / 2 + lw / 2, 0);
+        g.addColorStop(0, 'rgba(255,209,102,0)');
+        g.addColorStop(0.5, 'rgba(255,209,102,0.55)');
+        g.addColorStop(1, 'rgba(255,209,102,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(W / 2 - lw / 2, y, lw, 1);
+      }
       text(ctx, H.zoneName, W / 2, Hh * 0.26, { size: 22, align: 'center', color: '#ffd166' });
       if (H.zoneSub) text(ctx, H.zoneSub.toUpperCase(), W / 2, Hh * 0.26 + 22, { size: 10, align: 'center', color: 'rgba(215,210,224,0.7)' });
       ctx.restore();
@@ -313,7 +351,7 @@
       }
     } else {
       /* Promemoria dei tasti su PC */
-      drawKeyHints(ctx, L, G);
+      drawKeyHints(ctx, L, G, dt);
     }
 
     /* Etichetta di ciò che si può usare, sopra al personaggio */
@@ -383,7 +421,7 @@
     ctx.restore();
   }
 
-  function drawKeyHints(ctx, L, G) {
+  function drawKeyHints(ctx, L, G, dt) {
     const x = L.w - L.insets.right - 14, y0 = L.h - L.insets.bottom - 12;
     const rows = [
       ['WASD', 'muovi'],
@@ -394,8 +432,26 @@
       ['E', 'interagisci'],
       ['I  L  P  M', 'zaino, diario, abilità, mappa']
     ];
+    /* Dopo i primi secondi chi gioca su PC li ha già letti: si abbassa
+       l'opacità invece di lasciarli fissi alla stessa intensità per
+       tutta la partita, che li rende la cosa più visibile sullo schermo. */
+    H.keyHintsT += dt || 0;
+    const settle = M.clamp((H.keyHintsT - 5) / 2.5, 0, 1);
+    const a = 0.42 - settle * 0.22;
+
+    const w = 168, h = rows.length * 15 + 8;
+    const px = x - 138, py = y0 - (rows.length - 1) * 15 - 11;
     ctx.save();
-    ctx.globalAlpha = 0.42;
+    ctx.globalAlpha = a;
+    /* Pannello scuro sfumato: senza, il testo galleggia nudo sopra il
+       mondo di gioco ed è leggibile solo grazie al contorno. */
+    const g = ctx.createLinearGradient(0, py, 0, py + h);
+    g.addColorStop(0, 'rgba(10,8,14,0.05)');
+    g.addColorStop(0.3, 'rgba(10,8,14,0.55)');
+    g.addColorStop(1, 'rgba(10,8,14,0.55)');
+    ctx.fillStyle = g;
+    roundRect(ctx, px, py, w, h, 6);
+    ctx.fill();
     rows.forEach((r, i) => {
       const y = y0 - (rows.length - 1 - i) * 15;
       text(ctx, r[0], x - 132, y, { size: 10, color: '#ffd166', align: 'right', outlineW: 2 });
@@ -427,5 +483,5 @@
   function dodgeCost(p) { return p.perks.nimble ? 14 : 22; }
   function castCost(p) { return Math.round((18 - p.skills.destruction.lvl * 0.06) * (p.perks.focus ? 0.7 : 1)); }
 
-  CV.Hud = { draw, showZone, showTip, setBoss, countPotions, dodgeCost, castCost, currentObjective, text, roundRect };
+  CV.Hud = { draw, showZone, showTip, setBoss, setSite, countPotions, dodgeCost, castCost, currentObjective, text, roundRect };
 })(typeof window !== 'undefined' ? window : globalThis);

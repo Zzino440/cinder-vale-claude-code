@@ -224,8 +224,32 @@
       { id: 'ash_heart', w: 2, min: 1, max: 1 },
       { kind: 'gear', w: 6, tier: 3 },
       { kind: 'trinket', w: 3 }
+    ],
+    /* Sostituisce 'rich' nella valle dopo Vaelrik: stessa forma, tutto
+       più raro e più ricco, così i forzieri restano un motivo per tornare
+       anche a campagna finita. */
+    hoard: [
+      { id: 'gold', w: 6, min: 200, max: 450 },
+      { id: 'ember_ingot', w: 4, min: 2, max: 4 },
+      { id: 'ash_heart', w: 3, min: 1, max: 2 },
+      { kind: 'gear', w: 8, tier: 4 },
+      { kind: 'trinket', w: 4 }
     ]
   };
+
+  /* ---------------- Affissi dei nemici d'élite ----------------
+     Scelti per cambiare COME si combatte, non solo quanto dura lo
+     scontro: un'élite deve porre una domanda diversa, non solo più vita
+     e più danno. `mods` è letto da E.makeEnemy in entities.js. */
+  D.enemyAffixes = {
+    swift:   { key: 'swift',   name: 'Veloce',     aura: '#c9a6ff', mods: { speedMult: 1.35, telegraphMult: 0.72 } },
+    vampiric:{ key: 'vampiric',name: 'Vampirico',  aura: '#8f2020', mods: { lifesteal: 0.35 } },
+    volatile:{ key: 'volatile',name: 'Deflagrante',aura: '#f06c3a', mods: { deathBurst: { radius: 34, dmg: 18 } } },
+    ashen:   { key: 'ashen',   name: 'Cinereo',    aura: '#6b6577', mods: { ashCloud: true } },
+    burning: { key: 'burning', name: 'Ardente',    aura: '#ff6b3a', mods: { touchFire: 5 } },
+    armored: { key: 'armored', name: 'Corazzato',  aura: '#8f96a3', mods: { armorBonus: 6, staggerRes: 0.5 } }
+  };
+  D.enemyAffixOrder = ['swift', 'vampiric', 'volatile', 'ashen', 'burning', 'armored'];
 
   /* Nodi di raccolta sparsi nel mondo */
   D.harvestNodes = {
@@ -306,7 +330,10 @@
         { role: 'melee', dx: 3, dy: 1 },
         { role: 'ranged', dx: 0, dy: -3 }
       ],
-      chests: [{ dx: -3, dy: -2, table: 'common' }]
+      chests: [{ dx: -3, dy: -2, table: 'common' }],
+      /* Ricompensa per sgomberare l'intero sito (main.js, updateSiteObjective).
+         gold è un intervallo [min,max]; tier alimenta CV.Loot.makeGear. */
+      clearReward: { xp: 40, gold: [15, 35], tier: 2 }
     },
 
     den: {
@@ -325,7 +352,8 @@
         { role: 'beast', dx: 2, dy: 0, sightMult: 0.45 },
         { role: 'beast', dx: 0, dy: 2, sightMult: 0.45 }
       ],
-      nodes: [{ type: 'bones', dx: 1, dy: -2 }]
+      nodes: [{ type: 'bones', dx: 1, dy: -2 }],
+      clearReward: { xp: 30, gold: [10, 25], tier: 1 }
     },
 
     ruin: {
@@ -339,7 +367,8 @@
         { kind: 'gravestone', dx: -2, dy: 2 }, { kind: 'boneheap', dx: 2, dy: 2 }
       ],
       spawns: [{ role: 'bruiser', dx: 0, dy: -1, hpMult: 1.5 }],
-      chests: [{ dx: 0, dy: 1, table: 'common' }]
+      chests: [{ dx: 0, dy: 1, table: 'common' }],
+      clearReward: { xp: 35, gold: [15, 30], tier: 2 }
     },
 
     shrine: {
@@ -382,7 +411,8 @@
       spawns: [
         { role: 'beast', dx: -2, dy: -2 },
         { role: 'beast', dx: 3, dy: 1 }
-      ]
+      ],
+      clearReward: { xp: 25, gold: [10, 20], tier: 1 }
     }
   };
 

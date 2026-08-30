@@ -157,7 +157,7 @@
       inv: [], equip: { weapon: null, armor: null, trinket: null },
       effects: [],
       known: {},             /* ingrediente -> indici effetto scoperti */
-      quests: {}, flags: {},
+      quests: {}, flags: {}, contracts: [],
       zone: D.startZone, x: 0, y: 0,
       stats: null,
       playtime: 0, kills: 0, deaths: 0,

@@ -114,7 +114,7 @@
 
     G.enemies = z.def.safe ? [] : E.spawnZone(z, G.world, G.p.level, {
       x: pos.x, y: pos.y, radius: ENTRY_SAFE_RADIUS
-    });
+    }, !!G.p.flags.endgame);
     G.projectiles = []; G.particles = []; G.floats = []; G.drops = []; G.decals = [];
     G.freezeT = 0;
     G.entryGraceT = z.def.safe ? 0 : ENTRY_ORIENT_SECONDS;
@@ -223,6 +223,7 @@
       updatePlayer(dt);
       updateInteractions();
       updateAmbushes();
+      updateSiteObjective();
     } else {
       pe.stateT += dt;
       if (pe.stateT > 1.8 && !CV.UI.isOpen()) CV.UI.openDeath();
@@ -602,6 +603,65 @@
     }
   }
 
+  /* Traccia il sito più vicino con nemici propri (z.sites[i].keys, vedi
+     world.js) e mostra "sgombera (n/tot)" mentre il giocatore ci sta
+     dentro. La ricompensa scatta al passaggio da "resta almeno un nemico"
+     a "nessuno vivo", una volta per visita: lasciare la zona e tornare a
+     respawn scaduto permette di sgomberarlo di nuovo. */
+  function updateSiteObjective() {
+    const pe = G.pe;
+    let nearest = null, nearestD = Infinity;
+    for (const s of (G.zone.sites || [])) {
+      if (!s.keys || !s.keys.length) continue;
+      const cx = s.tx * W.T + 8, cy = s.ty * W.T + 8;
+      const d = M.dist(pe.x, pe.y, cx, cy);
+      if (d > (s.r + 2) * W.T) continue;
+      if (d < nearestD) { nearestD = d; nearest = s; }
+    }
+    if (!nearest) { CV.Hud.setSite(null); G.activeSitePrefix = null; return; }
+
+    const remaining = nearest.keys.filter(k => !E.isDead(G.world.killed, k)).length;
+    const total = nearest.keys.length;
+    const isNewTrack = G.activeSitePrefix !== nearest.prefix;
+    if (isNewTrack) { G.activeSitePrefix = nearest.prefix; G.siteRemainingSeen = remaining; }
+
+    if (remaining === 0) {
+      if (!isNewTrack && G.siteRemainingSeen > 0) grantSiteReward(nearest);
+      G.siteRemainingSeen = 0;
+      CV.Hud.setSite(null);
+      return;
+    }
+    G.siteRemainingSeen = remaining;
+    CV.Hud.setSite({ name: nearest.name, done: total - remaining, total: total });
+  }
+
+  function grantSiteReward(site) {
+    const def = D.sites[site.id];
+    const rw = def && def.clearReward;
+    if (!rw) { CV.UI.toast(site.name + ' sgomberato.', 'good'); return; }
+    const p = G.p, pe = G.pe;
+    const evs = [];
+    if (rw.xp) P.gainXp(p, rw.xp, evs);
+    if (rw.gold) {
+      const g = G.rng.int(rw.gold[0], rw.gold[1]);
+      p.gold += g;
+      G.floats.push(E.makeFloat(pe.x, pe.y - 24, '+' + g + ' oro', '#ffd166'));
+    }
+    if (rw.tier) {
+      const tier = Math.min(4, rw.tier + (p.flags.endgame ? 1 : 0));
+      const item = CV.Loot.makeGear(G.rng, tier, 0.15);
+      if (item) {
+        P.addItem(p, item);
+        G.floats.push(E.makeFloat(pe.x, pe.y - 40, P.resolve(item).name, '#7cc46a'));
+      }
+    }
+    P.recalc(p);
+    CV.Contracts.onSiteCleared(p, G.zone.id, evs);
+    pushEvents(evs);
+    CV.Audio.play('quest');
+    CV.UI.toast(site.name + ' sgomberato! Ricompensa raccolta.', 'gold');
+  }
+
   /* ---------------- Interazioni ---------------- */
   function updateInteractions() {
     const pe = G.pe;
@@ -638,7 +698,10 @@
         c.open = true;
         G.world.chests[c.key] = Date.now() / 1000 + debugSeconds('chestRespawnSeconds', CHEST_RESPAWN_SECONDS);
         CV.Audio.play('chest');
-        const items = CV.Loot.fromChest(c.table, G.rng);
+        /* Dopo Vaelrik i forzieri più ricchi passano alla tabella 'hoard':
+           stesso forziere di sempre, bottino da fine partita. */
+        const table = (p.flags.endgame && c.table === 'rich') ? 'hoard' : c.table;
+        const items = CV.Loot.fromChest(table, G.rng);
         for (const it of items) {
           const a = G.rng.next() * Math.PI * 2;
           G.drops.push({ item: it, x: c.x + Math.cos(a) * 12, y: c.y + Math.sin(a) * 12 + 6, t: 0, vy: -40 });
@@ -663,6 +726,7 @@
       case 'forge': CV.UI.openSmith(); break;
       case 'cauldron': CV.UI.openAlchemy(); break;
       case 'sign': CV.UI.toast(t.text || '...'); break;
+      case 'noticeboard': CV.UI.openContracts(); break;
       case 'shrine': {
         const sh = t.ref;
         if (sh.used) { CV.UI.toast('Il santuario è già stato onorato.'); break; }
@@ -753,12 +817,22 @@
           CV.Audio.play('quest');
           const rw = e.reward || {};
           CV.UI.toast('Missione completata: ' + D.quests[e.quest].name + (rw.gold ? ' (+' + rw.gold + ' oro)' : ''), 'gold');
-          if (e.quest === 'q_main4') setTimeout(() => CV.UI.openVictory(), 900);
+          if (e.quest === 'q_main4') {
+            /* La valle dopo Vaelrik: più élite, forzieri 'hoard', contratti
+               di fascia superiore. Riusa gli stessi sistemi, solo alzati. */
+            G.p.flags.endgame = true;
+            setTimeout(() => CV.UI.openVictory(), 900);
+          }
         } else if (e.event === 'stage') {
           CV.Audio.play('ui');
           CV.UI.toast('Obiettivo aggiornato');
         }
         refreshNpcMarkers();
+      } else if (e.type === 'contract') {
+        if (e.event === 'progress') {
+          CV.Audio.play('ui');
+          CV.UI.toast('Contratto pronto per la consegna: ' + e.contract.title, 'gold');
+        }
       }
     }
     refreshNpcMarkers();
@@ -925,7 +999,7 @@
     if (scope === 'common' || scope === 'epic' || scope === 'all') {
       G.enemies = E.forceRespawn(G.zone, G.world, G.p.level, {
         x: G.pe.x, y: G.pe.y, radius: ENTRY_SAFE_RADIUS
-      }, scope === 'all' ? 'common' : scope);
+      }, scope === 'all' ? 'common' : scope, !!G.p.flags.endgame);
     }
     if (scope === 'chests' || scope === 'all') {
       for (const c of G.zone.chests) { c.open = false; delete G.world.chests[c.key]; }

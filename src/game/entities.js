@@ -33,6 +33,19 @@
     if (v === true) return true;
     return v > Date.now() / 1000;
   }
+  E.isDead = isDead;   /* riusata da main.js per leggere l'obiettivo dei siti */
+
+  /* Somma i `mods` di uno o più affissi (D.enemyAffixes) in un solo oggetto.
+     Un'élite può averne 1-3: le chiavi non si accumulano fra loro (nessun
+     affisso condivide un campo con un altro), quindi un merge semplice basta. */
+  function mergeAffixMods(keys) {
+    const out = {};
+    for (const k of (keys || [])) {
+      const def = D.enemyAffixes && D.enemyAffixes[k];
+      if (def) Object.assign(out, def.mods);
+    }
+    return out;
+  }
 
   /* ================= GIOCATORE ================= */
   E.makePlayer = function (p, x, y) {
@@ -59,13 +72,24 @@
     if (!def) return null;
     opts = opts || {};
     const hpMult = opts.hpMult || 1;
+    /* Affissi (D.enemyAffixes, gamedata.js): scelti per cambiare il modo
+       di combattere (velocità/telegrafo, vampirismo, esplosione alla
+       morte, offuscamento, danno da contatto, resistenza allo stordimento)
+       non solo i numeri. `mods` viene poi letto ovunque nel file. */
+    const affixKeys = opts.affixes || [];
+    const mods = mergeAffixMods(affixKeys);
     const maxHp = Math.round(def.hp * hpMult * (1 + (opts.levelScale || 0)));
+    const affixNames = affixKeys.map(k => D.enemyAffixes[k] && D.enemyAffixes[k].name).filter(Boolean);
+    const name = opts.name || (affixNames.length ? (def.name + ' ' + affixNames.join(' ')) : def.name);
     return {
       kind: 'enemy', defId: defId, def: def, key: opts.key || null,
-      name: opts.name || def.name,
+      name: name,
       x: x, y: y, radius: def.radius || 8,
       hp: maxHp, maxHp: maxHp,
       dmgMult: (opts.dmgMult || 1) * (1 + (opts.levelScale || 0) * 0.6),
+      speed: def.speed * (mods.speedMult || 1),
+      affixKeys: affixKeys, affixMods: mods,
+      affixAura: affixKeys.length ? D.enemyAffixes[affixKeys[0]].aura : null,
       face: 0, animT: 0, state: 'idle', stateT: 0,
       homeX: x, homeY: y, targetX: x, targetY: y,
       wanderT: 0, flash: 0, knockX: 0, knockY: 0,
@@ -73,16 +97,18 @@
       sightMult: opts.sightMult || 1,
       lunge: 0, phase: 0, special: 0, dead: false, deadT: 0,
       drop: opts.drop || null, boostLoot: !!opts.boostLoot, boss: !!opts.boss,
-      elite: !!opts.name
+      elite: !!opts.name || affixKeys.length > 0
     };
   };
 
-  /* Popola una zona rispettando ciò che è già stato ucciso. */
-  E.spawnZone = function (z, worldState, playerLevel, safeArea) {
+  /* Popola una zona rispettando ciò che è già stato ucciso.
+     `endgame` (impostato quando p.flags.endgame è vero, dopo Vaelrik) alza
+     la quota di élite fra i nemici dei siti e il loro numero di affissi. */
+  E.spawnZone = function (z, worldState, playerLevel, safeArea, endgame) {
     const out = [];
     const rng = new CV.Rng(z.def.seed + 17);
     const killed = (worldState.killed = worldState.killed || {});
-    const levelScale = Math.max(0, (playerLevel - 1) * 0.06);
+    const levelScale = Math.max(0, (playerLevel - 1) * 0.06) + (endgame ? 0.25 : 0);
 
     (z.namedDefs || []).forEach((n, i) => {
       const key = z.id + ':named' + i;
@@ -111,12 +137,26 @@
     });
 
     /* Nemici piazzati dai siti (composizioni, non posizioni a caso):
-       vedi W.placeSites. Gia in posizione, gia con il ruolo risolto. */
+       vedi W.placeSites. Gia in posizione, gia con il ruolo risolto.
+       Una quota di loro diventa élite: affissi + vita maggiorata + bottino
+       potenziato (D.enemyAffixes, systems.js Loot.fromEnemy). */
+    const eliteChance = endgame ? 0.42 : 0.16;
     (z.siteSpawns || []).forEach((s) => {
       if (isDead(killed, s.key)) return;
+      let hpMult = s.hpMult || 1, affixes = [], boostLoot = false;
+      if (rng.next() < eliteChance) {
+        const n = endgame ? (rng.chance(0.4) ? 3 : (rng.chance(0.5) ? 2 : 1)) : (rng.chance(0.25) ? 2 : 1);
+        const pool = D.enemyAffixOrder.slice();
+        for (let i = 0; i < n && pool.length; i++) {
+          affixes.push(pool.splice(Math.floor(rng.next() * pool.length), 1)[0]);
+        }
+        hpMult *= 1.5 + affixes.length * 0.25;
+        boostLoot = true;
+      }
       const e = E.makeEnemy(s.id, s.x, s.y, {
-        key: s.key, hpMult: s.hpMult, dmgMult: s.dmgMult,
-        sightMult: s.sightMult, levelScale: levelScale
+        key: s.key, hpMult: hpMult, dmgMult: s.dmgMult,
+        sightMult: s.sightMult, levelScale: levelScale,
+        affixes: affixes, boostLoot: boostLoot
       });
       if (e) out.push(e);
     });
@@ -126,7 +166,7 @@
   /* Strumento di debug: libera dalla mappa `killed` le chiavi dello scope
      richiesto e ripopola la zona da capo. 'epic' = i named/boss (z.namedDefs),
      'common' = densità di zona + composizioni dei siti, 'all' = entrambi. */
-  E.forceRespawn = function (z, worldState, playerLevel, safeArea, scope) {
+  E.forceRespawn = function (z, worldState, playerLevel, safeArea, scope, endgame) {
     const killed = (worldState.killed = worldState.killed || {});
     if (scope === 'epic' || scope === 'all') {
       (z.namedDefs || []).forEach((n, i) => { delete killed[z.id + ':named' + i]; });
@@ -137,7 +177,7 @@
       });
       (z.siteSpawns || []).forEach((s) => { delete killed[s.key]; });
     }
-    return E.spawnZone(z, worldState, playerLevel, safeArea);
+    return E.spawnZone(z, worldState, playerLevel, safeArea, endgame);
   };
 
   /* ================= PROIETTILI ================= */
@@ -188,7 +228,7 @@
     const p = G.p;
     let dmg = amount;
     if (p.perks.execute && e.hp / e.maxHp < 0.25) dmg *= 1.6;
-    const armor = (e.def.armor || 0) * (opts.ignoreArmor ? 0 : 1);
+    const armor = ((e.def.armor || 0) + (e.affixMods.armorBonus || 0)) * (opts.ignoreArmor ? 0 : 1);
     dmg = Math.max(1, dmg - armor * 0.55);
     dmg = Math.round(dmg * 10) / 10;
 
@@ -206,7 +246,7 @@
       e.knockX += Math.cos(opts.knockDir) * opts.knock;
       e.knockY += Math.sin(opts.knockDir) * opts.knock;
     }
-    if (opts.stagger) e.stagger = Math.max(e.stagger, opts.stagger);
+    if (opts.stagger) e.stagger = Math.max(e.stagger, opts.stagger * (1 - (e.affixMods.staggerRes || 0)));
     if (opts.bleed) e.bleed = Math.max(e.bleed, opts.bleed);
 
     G.floats.push(E.makeFloat(e.x, e.y - e.radius - 6, Math.round(dmg) + (opts.crit ? '!' : ''),
@@ -237,6 +277,21 @@
     const p = G.p;
     p.kills++;
 
+    /* Affisso deflagrante: esplode alla morte. Danneggia gli altri nemici
+       (E.splash, riusato) e il giocatore se è rimasto a distanza ravvicinata
+       per finire il colpo — è la ragione per allontanarsi dopo l'uccisione. */
+    if (e.affixMods && e.affixMods.deathBurst) {
+      const b = e.affixMods.deathBurst;
+      E.splash(G, e.x, e.y, b.radius, b.dmg, e);
+      if (!G.pe.dead && M.dist(e.x, e.y, G.pe.x, G.pe.y) < b.radius + G.pe.radius) {
+        E.hurtPlayer(G, b.dmg, e.x, e.y, { knock: 90, unblockable: true });
+      }
+      for (let i = 0; i < 16; i++)
+        G.particles.push(E.makeParticle(e.x, e.y, i % 2 ? '#f06c3a' : '#ffd166', { speed: 140, life: 0.5, size: 3 }));
+      G.shake(7, 0.22);
+      CV.Audio.play('fire');
+    }
+
     for (let i = 0; i < 18; i++)
       G.particles.push(E.makeParticle(e.x, e.y, i % 2 ? '#6b6577' : '#a03030', { speed: 110, life: 0.75, size: 2 }));
     /* Il segno che resta dove è caduto */
@@ -266,6 +321,7 @@
 
     const evs2 = [];
     CV.Quests.onKill(p, e.defId, evs2);
+    CV.Contracts.onKill(p, e.defId, e.elite, p.zone, evs2);
     G.pushEvents(evs2);
     G.floats.push(E.makeFloat(e.x, e.y - 18, '+' + (e.def.xp * (e.elite ? 2 : 1)) + ' PE', '#c9a6ff'));
   };
@@ -338,6 +394,15 @@
     pe.knockX += Math.cos(dir) * (opts.knock || 90);
     pe.knockY += Math.sin(dir) * (opts.knock || 90);
     if (pe.state === 'attack') { pe.state = 'idle'; pe.stateT = 0; }
+
+    /* Affisso vampirico: l'attaccante si cura di una quota del danno
+       inflitto. Non incassare per comodità: rimane un costo diretto. */
+    if (opts.source && opts.source.affixMods && opts.source.affixMods.lifesteal) {
+      const src = opts.source;
+      const heal = dmg * src.affixMods.lifesteal;
+      src.hp = Math.min(src.maxHp, src.hp + heal);
+      G.floats.push(E.makeFloat(src.x, src.y - src.radius - 10, '+' + Math.round(heal), '#7cc46a'));
+    }
 
     G.shake(5, 0.16);
     G.floats.push(E.makeFloat(pe.x, pe.y - 16, '-' + Math.round(dmg), '#ff6b6b'));
@@ -430,6 +495,13 @@
     if (e.hitT > 0) e.hitT -= dt;
     if (e.stagger > 0) { e.stagger -= dt; }
 
+    /* Affisso cinereo: fumo ambientale attorno al nemico. Puramente
+       cosmetico qui; render.js abbassa anche la leggibilità del suo
+       telegrafo, che è dove l'affisso pesa davvero sul combattimento. */
+    if (e.affixMods.ashCloud && Math.random() < dt * 2.5) {
+      G.particles.push(E.makeParticle(e.x, e.y, '#6b6577', { speed: 14, life: 1.3, gravity: -4, size: 3 }));
+    }
+
     /* Contraccolpo */
     if (Math.abs(e.knockX) > 1 || Math.abs(e.knockY) > 1) {
       W.moveWithCollision(G.zone, e, e.knockX * dt, e.knockY * dt);
@@ -463,7 +535,7 @@
       const d2 = M.dist(e.x, e.y, e.targetX, e.targetY);
       if (d2 > 4) {
         const a = Math.atan2(e.targetY - e.y, e.targetX - e.x);
-        const sp = def.speed * 0.4 * dt;
+        const sp = e.speed * 0.4 * dt;
         W.moveWithCollision(G.zone, e, Math.cos(a) * sp, Math.sin(a) * sp);
         e.face = M.facingFromVec(Math.cos(a), Math.sin(a));
         e.moving = true;
@@ -490,7 +562,7 @@
           if (dist <= def.attackRange + e.radius) E.enterTelegraph(G, e, dist);
         }
         if (want !== 0) {
-          const sp = def.speed * dt * want;
+          const sp = e.speed * dt * want;
           /* Piccolo scarto laterale: evita che il branco si sovrapponga in fila */
           const wob = Math.sin(e.animT * 3 + e.x) * 0.25;
           const a = toPlayer + wob * (ai === 'charger' ? 0.5 : 1);
@@ -511,13 +583,15 @@
 
       case 'telegraph': {
         e.moving = false;
-        /* I ranged possono ancora ruotare verso il bersaglio */
-        if (e.stateT >= def.telegraph) {
+        /* I ranged possono ancora ruotare verso il bersaglio.
+           telegraphMult (affisso veloce) accorcia la finestra di reazione. */
+        const tgMult = e.affixMods.telegraphMult || 1;
+        if (e.stateT >= def.telegraph * tgMult) {
           e.state = 'attack'; e.stateT = 0;
           e.attackDir = toPlayer;
           if (def.ai === 'charger') e.lunge = 0.22;
           if (def.ai === 'ranged') {
-            const dmg = def.dmg * e.dmgMult;
+            const dmg = def.dmg * e.dmgMult + (e.affixMods.touchFire || 0);
             const proj = E.makeProjectile(def.projectile || 'arrow', e.x, e.y, toPlayer, dmg, false,
               { aoe: def.projectile === 'fireball' ? 22 : 0 });
             G.projectiles.push(proj);
@@ -532,7 +606,7 @@
       case 'attack': {
         if (def.ai === 'charger' && e.lunge > 0) {
           e.lunge -= dt;
-          const sp = def.speed * 2.4 * dt;
+          const sp = e.speed * 2.4 * dt;
           W.moveWithCollision(G.zone, e, Math.cos(e.attackDir) * sp, Math.sin(e.attackDir) * sp);
         }
         /* Finestra attiva del colpo in mischia */
@@ -542,7 +616,10 @@
             const a = Math.atan2(pe.y - e.y, pe.x - e.x);
             if (Math.abs(M.angDelta(e.attackDir, a)) < 1.1) {
               e.didHit = true;
-              E.hurtPlayer(G, def.dmg * e.dmgMult, e.x, e.y, {
+              /* Affisso ardente: bonus di danno diretto sul contatto — la
+                 distanza smette di essere gratis contro questi nemici. */
+              const dmg = def.dmg * e.dmgMult + (e.affixMods.touchFire || 0);
+              E.hurtPlayer(G, dmg, e.x, e.y, {
                 source: e, knock: def.ai === 'charger' ? 150 : 100,
                 venom: def.venom || 0
               });

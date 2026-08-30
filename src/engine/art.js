@@ -473,6 +473,24 @@
     '................',
     '................'
   ];
+  SPR.noticeboard = [
+    '................',
+    '.kkkkkkkkkkkkkk.',
+    '.lLLLLLLLLLLLLl.',
+    '.lLwwwLLwwwLLLl.',
+    '.lLwrwLLwLwLLLl.',
+    '.lLwwwLLwwwLLLl.',
+    '.lLLLLLLwwwLLLl.',
+    '.lLLLLLLwrwLLLl.',
+    '.lLLLLLLwwwLLLl.',
+    '.lLLLLLLLLLLLLl.',
+    '.kkkkkkkkkkkkkk.',
+    '......kLLk......',
+    '......kLLk......',
+    '......kLLk......',
+    '.....kkLLkk.....',
+    '................'
+  ];
   SPR.portal = [
     '......dddd......',
     '....ddffffdd....',
@@ -1126,20 +1144,30 @@
      ================================================================ */
   const propCache = new Map();
 
+  /* Otto varianti (0-3 vivi, 4-7 secchi): un bosco in cui ogni albero ha la
+     stessa altezza non ha profondità. Il tronco si allunga verso il basso
+     (la chioma resta ferma in cima) per variare l'altezza, e la chioma
+     alterna due raggi per variare l'ampiezza — sempre a coordinate intere,
+     così restano nitidi come il resto della pixel art invece di sfumarsi
+     per un ridimensionamento frazionario. */
   function tree(variant) {
     const key = 'tree' + variant;
     if (propCache.has(key)) return propCache.get(key);
-    const w = 32, h = 44;
+    const dead = variant >= 4;
+    const sizeIdx = variant % 4;
+    const trunkExtra = [0, 4, 8, 12][sizeIdx];
+    const wide = sizeIdx % 2 === 1;
+    const w = 32, h = 44 + trunkExtra;
     const cv = makeCanvas(w, h);
     const ctx = cv.getContext('2d');
     const rng = new CV.Rng(7000 + variant * 131);
-    const dead = variant >= 2;
 
-    /* Tronco */
+    /* Tronco: parte sempre dalla stessa riga (26, dove finisce la chioma)
+       e si allunga verso il basso fino al nuovo bordo del canvas. */
     ctx.fillStyle = '#241a14';
-    ctx.fillRect(13, 26, 6, 18);
+    ctx.fillRect(13, 26, 6, 18 + trunkExtra);
     ctx.fillStyle = '#3a2a1e';
-    ctx.fillRect(14, 26, 3, 18);
+    ctx.fillRect(14, 26, 3, 18 + trunkExtra);
 
     if (dead) {
       /* Albero secco: solo rami */
@@ -1156,12 +1184,13 @@
       for (let i = 0; i < 14; i++) ctx.fillRect(4 + rng.next() * 24, 4 + rng.next() * 22, 2, 2);
     } else {
       /* Chioma: grappoli di cerchi pixelati */
-      const dark = variant === 0 ? '#243a26' : '#2b3a2c';
-      const mid = variant === 0 ? '#31502f' : '#3a4d35';
-      const lit = variant === 0 ? '#41653a' : '#4c6244';
+      const dark = sizeIdx % 2 === 0 ? '#243a26' : '#2b3a2c';
+      const mid = sizeIdx % 2 === 0 ? '#31502f' : '#3a4d35';
+      const lit = sizeIdx % 2 === 0 ? '#41653a' : '#4c6244';
+      const rr = wide ? 2 : 0;
       const blobs = [[16, 14, 13], [9, 19, 9], [23, 19, 9], [16, 22, 11], [12, 10, 7], [21, 11, 7]];
-      for (const [cx, cy, r] of blobs) { ctx.fillStyle = dark; circle(ctx, cx, cy, r); }
-      for (const [cx, cy, r] of blobs) { ctx.fillStyle = mid; circle(ctx, cx, cy - 1, r - 2); }
+      for (const [cx, cy, r] of blobs) { ctx.fillStyle = dark; circle(ctx, cx, cy, r + rr); }
+      for (const [cx, cy, r] of blobs) { ctx.fillStyle = mid; circle(ctx, cx, cy - 1, r + rr - 2); }
       for (let i = 0; i < 26; i++) {
         ctx.fillStyle = lit;
         ctx.fillRect(6 + Math.floor(rng.next() * 20), 5 + Math.floor(rng.next() * 18), 2, 2);
@@ -1606,7 +1635,7 @@
     MASK_VARIANTS, edgeMask, edgePiece, getShadowTex,
     sprite, flashOf, buildTileAtlas, tileIndex,
     getTileAtlas: () => tileAtlas || buildTileAtlas(),
-    tree, rock, bush, house, pillar, circle, iconFor, makeCanvas,
+    tree, rock, bush, house, pillar, circle, ellip, iconFor, makeCanvas,
     stump, tallgrass, flowers, mushrooms, boneheap, barrel, crate,
     gravestone, fence, stalagmite, cobweb, banner
   };

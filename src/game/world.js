@@ -51,6 +51,7 @@
       for (let x = 0; x < z.w; x++) {
         const n = CV.noise.fbm(x / 9, y / 9, d.seed, 3);
         setTile(z, x, y, n > 0.58 ? 'dirt' : (n < 0.36 ? 'ash_grass' : 'grass'), false);
+        z.elev[idx(z, x, y)] = n * 255;
       }
     }
     /* Palizzata perimetrale con varchi verso le uscite */
@@ -80,7 +81,7 @@
     }
 
     /* Alberi e cespugli negli spazi liberi */
-    scatterNature(z, rng, 26, 20, [0, 1], 0.5);
+    scatterNature(z, rng, 26, 20, [0, 1, 2, 3], 0.5);
     /* Uscita verso la brughiera: apre la palizzata */
     for (const ex of d.exits) clearAround(z, ex.tx, ex.ty, 2, 'path');
   }
@@ -96,13 +97,14 @@
         else if (n < 0.34) key = 'dirt';
         if (n2 > 0.78 && n < 0.5) key = 'water';
         setTile(z, x, y, key, key === 'water');
+        z.elev[idx(z, x, y)] = n * 255;
       }
     }
     borderWalls(z, 'rock_wall');
     /* Sentiero irregolare che attraversa la brughiera */
     windingPath(z, rng, 32, z.h - 4, 60, 14, 'path');
     windingPath(z, rng, 32, 40, 4, 30, 'path');
-    scatterNature(z, rng, 30, 34, [2, 3], 0.35);
+    scatterNature(z, rng, 30, 34, [4, 5, 6, 7], 0.35);
     scatterRocks(z, rng, 26);
   }
 
@@ -114,12 +116,13 @@
         /* Sottobosco: terra battuta e chiazze d'erba secca. Niente pietra,
            che in mezzo agli alberi legge come una macchia fredda fuori posto. */
         setTile(z, x, y, n > 0.6 ? 'dirt' : (n < 0.38 ? 'ash_grass' : 'grass'), false);
+        z.elev[idx(z, x, y)] = n * 255;
       }
     }
     borderWalls(z, 'rock_wall');
     windingPath(z, rng, z.w - 4, 32, 32, 4, 'path');
     /* Bosco fitto: la densità cresce lontano dai sentieri */
-    scatterNature(z, rng, 150, 70, [0, 1, 2], 0.9);
+    scatterNature(z, rng, 150, 70, [0, 1, 2, 3, 4, 6], 0.9);
     scatterRocks(z, rng, 16);
   }
 
@@ -333,7 +336,7 @@
       if (rng.next() > (1 - edge) * edgeBias + 0.22) continue;
       const v = rng.pick(variants);
       const img = A.tree(v);
-      z.props.push({ kind: 'tree', img: img, sway: v >= 2 ? 0.35 : 0.6, x: tx * T + 8, y: ty * T + 16, ox: img.width / 2, oy: img.height,
+      z.props.push({ kind: 'tree', img: img, sway: v >= 4 ? 0.35 : 0.6, x: tx * T + 8, y: ty * T + 16, ox: img.width / 2, oy: img.height,
         col: { x: tx * T + 4, y: ty * T + 6, w: 9, h: 9 } });
       z.solid[i] = 1; busy[i] = 1;
       placed++;
@@ -630,8 +633,14 @@
       const tx = rng.int(s.r + 3, z.w - s.r - 4);
       const ty = rng.int(s.r + 3, z.h - s.r - 4);
       if (!siteFits(z, s, tx, ty, busy, z.sites)) continue;
-      buildSite(z, s, tx, ty, z.sites.length, rng, resolveRole);
-      z.sites.push({ id: s.id, name: s.name, tx: tx, ty: ty, r: s.r });
+      const index = z.sites.length;
+      const built = buildSite(z, s, tx, ty, index, rng, resolveRole);
+      /* prefix e keys identificano il sito come obiettivo: sono ciò che
+         main.js legge per sapere quanti nemici del sito sono ancora vivi
+         (vedi updateSiteObjective) e sono deterministici — lo stesso seme
+         di zona produce sempre lo stesso sito allo stesso indice. */
+      z.sites.push({ id: s.id, name: s.name, tx: tx, ty: ty, r: s.r,
+        prefix: z.id + ':site' + index, keys: built.keys });
       /* L'area occupata vale anche per i siti successivi */
       eachDisc(z, tx, ty, s.r + 1, (x, y, i) => { busy[i] = 1; });
     }
@@ -650,8 +659,14 @@
     const mode = s.carve ? s.carve.mode : 'none';
     if (mode === 'clear') {
       eachDisc(z, tx, ty, s.r, (x, y) => setTile(z, x, y, floor, false));
+      /* Un pavimento spianato non può avere sotto il rilievo del terreno
+         originale: il renderer lo leggerebbe come un pavimento bitorzoluto. */
+      const flatElev = z.elev[idx(z, tx, ty)];
+      eachDisc(z, tx, ty, s.r, (x, y, i) => { z.elev[i] = flatElev; });
     } else if (mode === 'ring') {
       eachDisc(z, tx, ty, s.r - 1, (x, y) => setTile(z, x, y, floor, false));
+      const flatElev2 = z.elev[idx(z, tx, ty)];
+      eachDisc(z, tx, ty, s.r - 1, (x, y, i) => { z.elev[i] = flatElev2; });
       const wall = wallKeyFor(biome);
       const steps = Math.round(2 * Math.PI * (s.r - 1) * 1.7);
       for (let i = 0; i < steps; i++) {
@@ -719,9 +734,13 @@
       };
     };
 
+    /* Le chiavi dei nemici piazzati qui (non quelli d'imboscata, che
+       restano una sorpresa a parte) sono ciò che rende il sito un
+       obiettivo verificabile: vedi z.sites.push in placeSites. */
+    const keys = [];
     (s.spawns || []).forEach((sp, j) => {
       const e = mkSpawn(sp, j, prefix + ':e');
-      if (e) z.siteSpawns.push(e);
+      if (e) { z.siteSpawns.push(e); keys.push(e.key); }
     });
 
     if (s.ambush) {
@@ -735,6 +754,7 @@
                           r: s.ambush.radius || 46, spawns: list, done: false });
       }
     }
+    return { keys: keys };
   }
 
   /* ================================================================
@@ -749,11 +769,20 @@
       tiles: new Uint8Array(def.w * def.h),
       variant: new Uint8Array(def.w * def.h),
       solid: new Uint8Array(def.w * def.h),
+      elev: new Uint8Array(def.w * def.h),
       props: [], chests: [], nodes: [], npcs: [], exits: [], interactables: [],
       sites: [], siteSpawns: [], ambushes: [], shrines: [],
       spawnDefs: def.spawns || [], namedDefs: def.named || []
     };
     const rng = new CV.Rng(def.seed);
+
+    /* Quota di appoggio a bassa frequenza: i biomi a cielo aperto la
+       sovrascrivono col loro stesso rumore (riusato, non ricalcolato).
+       Miniera e Rocca scavano invece di generare rumore, ma restano
+       comunque con una quota plausibile per il rilievo del renderer. */
+    for (let y = 0; y < z.h; y++)
+      for (let x = 0; x < z.w; x++)
+        z.elev[idx(z, x, y)] = CV.noise.fbm(x / 14, y / 14, def.seed + 4200, 3) * 255;
 
     switch (def.biome) {
       case 'village': genVillage(z, rng); break;
@@ -788,13 +817,13 @@
     /* Oggetti fissi dello scenario */
     (def.props || []).forEach(p => {
       clearAround(z, p.tx, p.ty, 1, floorKey);
-      const img = A.sprite(p.kind === 'forge' ? 'forge' : p.kind === 'cauldron' ? 'cauldron' : p.kind === 'sign' ? 'sign' : 'campfire');
+      const img = A.sprite(p.kind === 'forge' ? 'forge' : p.kind === 'cauldron' ? 'cauldron' : p.kind === 'sign' ? 'sign' : p.kind === 'noticeboard' ? 'noticeboard' : 'campfire');
       const o = { kind: p.kind, img: img, x: p.tx * T + 8, y: p.ty * T + 16, ox: 8, oy: 16, text: p.text,
-        col: p.kind === 'sign' ? null : { x: p.tx * T + 3, y: p.ty * T + 6, w: 11, h: 9 } };
+        col: (p.kind === 'sign' || p.kind === 'noticeboard') ? null : { x: p.tx * T + 3, y: p.ty * T + 6, w: 11, h: 9 } };
       z.props.push(o);
-      if (p.kind === 'forge' || p.kind === 'cauldron' || p.kind === 'campfire' || p.kind === 'sign') {
+      if (p.kind === 'forge' || p.kind === 'cauldron' || p.kind === 'campfire' || p.kind === 'sign' || p.kind === 'noticeboard') {
         z.interactables.push({ kind: p.kind, x: o.x, y: o.y - 8, r: 26, text: p.text,
-          label: p.kind === 'forge' ? 'Fucina' : p.kind === 'cauldron' ? 'Calderone' : p.kind === 'campfire' ? 'Riposa' : 'Leggi' });
+          label: p.kind === 'forge' ? 'Fucina' : p.kind === 'cauldron' ? 'Calderone' : p.kind === 'campfire' ? 'Riposa' : p.kind === 'noticeboard' ? 'Bacheca' : 'Leggi' });
       }
     });
 

@@ -7,6 +7,13 @@
       "runtimeArgs": ["devserver.mjs"],
       "port": 8123,
       "autoPort": false
+    },
+    {
+      "name": "cinder-vale-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["devserver.mjs", "8124"],
+      "port": 8124,
+      "autoPort": false
     }
   ]
 }

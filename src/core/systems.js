@@ -240,6 +240,151 @@
   };
 
   /* ================================================================
+     CONTRATTI — bacheca di Ashford, generati e ripetibili.
+     Stessa filosofia dichiarativa delle missioni: un contratto è dati
+     (tipo, bersaglio, conteggio, ricompensa), non codice. A differenza
+     delle missioni scritte a mano, si rigenerano da soli quando riscossi:
+     sono il motivo per tornare quando la trama è già stata vista.
+     ================================================================ */
+  const Contracts = {};
+  const CONTRACT_SLOTS = 3;
+
+  /* Oggetti di raccolta ragionevoli da chiedere: comuni, non di missione,
+     ottenibili in più zone così un contratto non blocca mai nessuno. */
+  Contracts.collectPool = [
+    'wolf_fang', 'bandit_mark', 'iron_ore', 'pelt', 'leather',
+    'coal', 'bone', 'ashbloom', 'blackroot', 'beetlewing', 'nightcrown'
+  ];
+
+  Contracts.zonesForContracts = function () {
+    return D.zoneOrder.filter(id => !D.zones[id].safe);
+  };
+
+  /* Fascia approssimativa di una zona, usata solo per scalare oro/PE/tier
+     del bottino: non è un sistema nuovo, riusa l'ordine delle zone. */
+  Contracts.tierForZone = function (zoneId) {
+    const idx = D.zoneOrder.indexOf(zoneId);
+    return Math.max(1, Math.min(3, idx));
+  };
+
+  Contracts.pickHuntTarget = function (zoneId, rng) {
+    const zdef = D.zones[zoneId];
+    const pool = [];
+    if (zdef.roles) for (const k in zdef.roles) pool.push(zdef.roles[k]);
+    if (zdef.spawns) for (const s of zdef.spawns) pool.push(s.id);
+    const uniq = Array.from(new Set(pool));
+    return uniq.length ? rng.pick(uniq) : null;
+  };
+
+  /* Genera un contratto casuale. 'hunt' e 'clear' si completano incontrando
+     dal vivo un'élite o sgomberando un sito (E.killEnemy / main.js
+     grantSiteReward chiamano Contracts.onKill / onSiteCleared); 'collect'
+     si legge direttamente dall'inventario, niente da agganciare. */
+  Contracts.roll = function (rng, level, endgame) {
+    const zones = Contracts.zonesForContracts();
+    const type = rng.pick(['hunt', 'hunt', 'clear', 'collect']);
+    const cid = 'c' + Date.now().toString(36) + Math.floor(rng.next() * 1e6).toString(36);
+    const rarBias = endgame ? 0.3 : 0.12;
+
+    if (type === 'hunt') {
+      /* Fino a tre tentativi: se una zona non ha nemici da cacciare
+         (non dovrebbe succedere, ma i dati cambiano) si ripiega su 'collect'. */
+      for (let tries = 0; tries < 3; tries++) {
+        const zoneId = rng.pick(zones);
+        const defId = Contracts.pickHuntTarget(zoneId, rng);
+        if (!defId) continue;
+        const zdef = D.zones[zoneId], tier = Contracts.tierForZone(zoneId);
+        const enemyName = D.enemies[defId].name;
+        const goldBase = 20 + level * 5 + tier * 15, xpBase = 30 + level * 6 + tier * 12;
+        return {
+          cid: cid, type: 'hunt', zoneId: zoneId, defId: defId, count: 1, progress: 0, done: false,
+          title: 'Caccia: ' + enemyName + ' elite',
+          desc: 'Un ' + enemyName.toLowerCase() + ' fuori dal comune si aggira in ' + zdef.name + '. Portane la prova.',
+          reward: { gold: [goldBase, goldBase + 20], xp: xpBase, tier: Math.min(4, tier + 1 + (endgame ? 1 : 0)), rarBias: rarBias }
+        };
+      }
+    }
+    if (type === 'clear') {
+      const zoneId = rng.pick(zones);
+      const zdef = D.zones[zoneId], tier = Contracts.tierForZone(zoneId);
+      const goldBase = 20 + level * 5 + tier * 15, xpBase = 30 + level * 6 + tier * 12;
+      return {
+        cid: cid, type: 'clear', zoneId: zoneId, count: 1, progress: 0, done: false,
+        title: 'Sgombero: ' + zdef.name,
+        desc: 'Un accampamento nemico si è stabilito in ' + zdef.name + '. Sgomberalo.',
+        reward: { gold: [goldBase, goldBase + 15], xp: Math.round(xpBase * 0.8), tier: Math.min(4, tier + (endgame ? 1 : 0)), rarBias: rarBias }
+      };
+    }
+    const itemId = rng.pick(Contracts.collectPool);
+    const base = D.base(itemId);
+    const count = rng.int(3, 6);
+    const goldBase = 20 + level * 4;
+    return {
+      cid: cid, type: 'collect', itemId: itemId, count: count, done: false,
+      title: 'Raccolta: ' + base.name,
+      desc: 'Serve ' + base.name.toLowerCase() + ' in bacheca. Portane ' + count + '.',
+      reward: { gold: [Math.round(goldBase * 0.8), goldBase + 15], xp: Math.round((30 + level * 4) * 0.7) }
+    };
+  };
+
+  Contracts.ensure = function (p, rng, level, endgame) {
+    if (!p.contracts) p.contracts = [];
+    while (p.contracts.length < CONTRACT_SLOTS) p.contracts.push(Contracts.roll(rng, level, endgame));
+  };
+
+  Contracts.state = function (p, c) {
+    if (c.done) return 'done';
+    if (c.type === 'collect') return P.count(p, c.itemId) >= c.count ? 'ready' : 'active';
+    return (c.progress || 0) >= c.count ? 'ready' : 'active';
+  };
+
+  Contracts.progressText = function (p, c) {
+    if (c.type === 'collect') return Math.min(P.count(p, c.itemId), c.count) + ' / ' + c.count;
+    return Math.min(c.progress || 0, c.count) + ' / ' + c.count;
+  };
+
+  Contracts.claim = function (p, cid, rng, level, endgame, out) {
+    const i = (p.contracts || []).findIndex(c => c.cid === cid);
+    if (i < 0) return { ok: false };
+    const c = p.contracts[i];
+    if (Contracts.state(p, c) !== 'ready') return { ok: false, why: 'Non ancora completato.' };
+    const rw = c.reward || {};
+    if (c.type === 'collect') P.removeById(p, c.itemId, c.count);
+    if (rw.gold) p.gold += rng.int(rw.gold[0], rw.gold[1]);
+    if (rw.xp) P.gainXp(p, rw.xp, out);
+    let item = null;
+    if (rw.tier) item = Loot.makeGear(rng, rw.tier, rw.rarBias || 0.15);
+    if (item) P.addItem(p, item);
+    p.contracts.splice(i, 1);
+    Contracts.ensure(p, rng, level, endgame);
+    P.recalc(p);
+    return { ok: true, contract: c, item: item };
+  };
+
+  /* isElite viene da e.elite (entities.js): true anche per i nemici con
+     affissi, non solo per i named. Un contratto di caccia si completa
+     incontrando un'élite della specie giusta nella zona giusta. */
+  Contracts.onKill = function (p, defId, isElite, zoneId, out) {
+    if (!isElite || !p.contracts) return;
+    for (const c of p.contracts) {
+      if (c.done || c.type !== 'hunt' || c.defId !== defId || c.zoneId !== zoneId) continue;
+      if ((c.progress || 0) >= c.count) continue;
+      c.progress = (c.progress || 0) + 1;
+      if (out) out.push({ type: 'contract', event: 'progress', contract: c });
+    }
+  };
+
+  Contracts.onSiteCleared = function (p, zoneId, out) {
+    if (!p.contracts) return;
+    for (const c of p.contracts) {
+      if (c.done || c.type !== 'clear' || c.zoneId !== zoneId) continue;
+      if ((c.progress || 0) >= c.count) continue;
+      c.progress = (c.progress || 0) + 1;
+      if (out) out.push({ type: 'contract', event: 'progress', contract: c });
+    }
+  };
+
+  /* ================================================================
      MISSIONI
      ================================================================ */
   const Q = {};
@@ -447,6 +592,7 @@
     p.flags = p.flags || {};
     p.quests = p.quests || {};
     p.discovered = p.discovered || {};
+    p.contracts = p.contracts || [];
     P.setUidCounter((raw.uid || 1) + 1);
     P.recalc(p);
     return { player: p, world: raw.world || {}, settings: raw.settings || {}, t: raw.t };
@@ -456,6 +602,7 @@
   CV.Smith = Smith;
   CV.Alch = Alch;
   CV.Quests = Q;
+  CV.Contracts = Contracts;
   CV.Dialogue = Dlg;
   CV.Save = Save;
 })(typeof window !== 'undefined' ? window : globalThis);

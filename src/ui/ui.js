@@ -84,6 +84,7 @@
       case 'menu': el.innerHTML = viewMenu(); break;
       case 'dialogue': el.innerHTML = viewDialogue(); break;
       case 'shop': el.innerHTML = viewShop(); break;
+      case 'contracts': el.innerHTML = viewContracts(); break;
       case 'smith': el.innerHTML = viewSmith(); break;
       case 'alchemy': el.innerHTML = viewAlchemy(); break;
       case 'death': el.innerHTML = viewDeath(); break;
@@ -628,6 +629,45 @@
   }
 
   /* ================================================================
+     BACHECA DEI CONTRATTI
+     ================================================================ */
+  function viewContracts() {
+    const p = G.p;
+    const rows = (p.contracts || []).map(c => {
+      const st = CV.Contracts.state(p, c);
+      const ready = st === 'ready';
+      const prog = CV.Contracts.progressText(p, c);
+      const rw = c.reward || {};
+      const rewardTxt = [
+        rw.gold ? rw.gold[0] + '-' + rw.gold[1] + ' ⬤' : '',
+        rw.xp ? rw.xp + ' PE' : '',
+        rw.tier ? 'equipaggiamento' : ''
+      ].filter(Boolean).join(' · ');
+      return `<div class="detail" style="border-left:3px solid ${ready ? 'var(--gold)' : 'var(--ash-4)'}">
+        <h3 style="color:${ready ? 'var(--gold)' : 'var(--text)'}">${esc(c.title)}</h3>
+        <div class="flavor">${esc(c.desc)}</div>
+        <div class="stat-line"><span>Avanzamento</span><span class="v">${esc(prog)}</span></div>
+        <div class="stat-line"><span>Ricompensa</span><span class="v">${esc(rewardTxt)}</span></div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="${ready ? 'primary' : ''}" ${ready ? '' : 'disabled'} data-act="contractclaim" data-cid="${c.cid}">Riscuoti</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="panel">
+      <div class="panel-head">
+        <h2>Bacheca dei Contratti</h2>
+        <span style="font-size:12px;color:var(--gold);font-family:var(--mono)">${p.gold} ⬤</span>
+        <button class="close-x" data-act="close">✕</button>
+      </div>
+      <div class="panel-body">
+        <div class="hint">Tre contratti alla volta. Riscuoterne uno ne genera subito un altro: è pensata per essere ripetuta.</div>
+        <div class="list">${rows || '<div class="empty">Nessun contratto disponibile.</div>'}</div>
+      </div>
+    </div>`;
+  }
+
+  /* ================================================================
      FUCINA
      ================================================================ */
   function viewSmith() {
@@ -921,6 +961,23 @@
         break;
       }
 
+      /* Bacheca dei contratti */
+      case 'contractclaim': {
+        const evs = [];
+        const res = CV.Contracts.claim(G.p, t.dataset.cid, G.rng, G.p.level, !!G.p.flags.endgame, evs);
+        G.pushEvents(evs);
+        if (res.ok) {
+          CV.Audio.play('quest');
+          toast('Contratto riscosso' + (res.contract.reward.xp ? ' (+' + res.contract.reward.xp + ' PE)' : ''), 'gold');
+          if (res.item) toast('Ricevuto: ' + P.resolve(res.item).name, 'good');
+        } else {
+          CV.Audio.play('error');
+          toast(res.why || 'Non ancora pronto.', 'bad');
+        }
+        render();
+        break;
+      }
+
       /* Fucina */
       case 'smithtab': smithTab = t.dataset.t; render(); break;
       case 'forge': {
@@ -1035,6 +1092,7 @@
     openSmith: () => { smithTab = 'forge'; open('smith', {}); },
     openAlchemy: () => { alchPick = []; open('alchemy', {}); },
     openShop: (id) => { shopTab = 'buy'; open('shop', { shop: id }); },
+    openContracts: () => { CV.Contracts.ensure(G.p, G.rng, G.p.level, !!G.p.flags.endgame); open('contracts', {}); },
     openMenu: (tab) => { open('menu', { tab: tab || 'inv' }); },
     openTitle: (hasSave) => open('title', { hasSave: hasSave }),
     openDeath: () => open('death', {}),
