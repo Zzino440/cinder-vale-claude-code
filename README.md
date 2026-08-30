@@ -68,8 +68,10 @@ prima di colpire. È la finestra in cui puoi agire.
 - **Missioni** con più fasi, diario, marcatori sopra i personaggi, e otto
   missioni tra principali e secondarie.
 - **Peso trasportabile**, oltre il limite si rallenta.
-- **Salvataggio automatico** in `localStorage`, a ogni cambio di zona e ogni due
-  minuti.
+- **Tre slot di salvataggio** in `localStorage`, con autosalvataggio nello slot
+  attivo a ogni cambio di zona e ogni due minuti.
+- **Snapshot di debug protetti**, ripristinabili senza che gli autosalvataggi
+  modifichino lo stato originale.
 
 Nessun asset esterno: sprite, tile, icone, effetti sonori e musica sono tutti
 generati dal codice. Il gioco intero è un unico file HTML da ~280 kB.
@@ -164,7 +166,7 @@ Il progetto è stato scritto pensando a questo passaggio.
 
 ## Note
 
-- I salvataggi stanno in `localStorage`, separati per dominio: la partita
-  dell'Artifact e quella locale sono due partite diverse.
+- I salvataggi stanno in `localStorage`, separati per dominio: gli slot
+  dell'Artifact e quelli locali sono indipendenti.
 - Morire costa metà dell'oro che hai addosso e ti riporta ad Ashford. Nient'altro.
 - I falò rigenerano le forze e fanno ricrescere i cespugli e i filoni.

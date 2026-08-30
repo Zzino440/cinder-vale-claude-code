@@ -213,3 +213,30 @@ button:disabled { opacity: .4; }
 .title-screen .menu { display: flex; flex-direction: column; gap: 9px; width: min(300px, 88vw); }
 .title-screen .menu button { padding: 14px; font-size: 14px; letter-spacing: 1px; }
 .title-screen .ver { position: absolute; bottom: calc(14px + env(safe-area-inset-bottom)); font-size: 10px; color: var(--ash-4); }
+
+.save-title-screen { justify-content: flex-start; overflow-y: auto; touch-action: pan-y; padding-top: max(24px, calc(env(safe-area-inset-top) + 20px)); padding-bottom: 54px; }
+.save-title-screen .tagline { margin-bottom: 12px; }
+.save-browser { display: flex; flex-direction: column; gap: 7px; width: min(620px, 94vw); text-align: left; }
+.save-section-title { margin: 8px 2px 0; color: var(--ember); font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
+.continue-latest { align-self: center; width: min(320px, 100%); padding: 13px; }
+.save-slot { display: flex; align-items: center; gap: 7px; padding: 9px; background: var(--ash-1); border: 1px solid var(--ash-3); border-radius: 7px; }
+.save-slot.debug-slot { border-left: 3px solid #a06fd1; }
+.save-slot.invalid-slot { border-color: var(--blood); }
+.save-slot-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.save-slot-copy b, .save-slot-copy span, .save-slot-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-slot-copy b { color: var(--gold); font-size: 12px; }
+.save-slot-copy span { font-size: 12px; }
+.save-slot-copy small { color: var(--text-dim); font-size: 10px; }
+.save-slot button { flex: 0 0 auto; padding: 9px 10px; font-size: 11px; }
+.save-slot .delete-slot { color: var(--blood); }
+.title-actions { margin-top: 5px; }
+.snapshot-create { display: flex; gap: 7px; margin-top: 10px; }
+.snapshot-create input { flex: 1; min-width: 0; padding: 10px; color: var(--text); background: var(--ash-1); border: 1px solid var(--ash-4); border-radius: 6px; font: 13px var(--ui-font); user-select: text; -webkit-user-select: text; }
+
+@media (max-width: 480px) {
+  .save-title-screen h1 { font-size: 30px; }
+  .save-slot { flex-wrap: wrap; }
+  .save-slot-copy { flex-basis: calc(100% - 96px); }
+  .save-slot button { flex: 1 1 88px; }
+  .empty-slot .save-slot-copy { flex-basis: auto; }
+}

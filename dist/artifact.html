@@ -221,6 +221,33 @@ button:disabled { opacity: .4; }
 .title-screen .menu button { padding: 14px; font-size: 14px; letter-spacing: 1px; }
 .title-screen .ver { position: absolute; bottom: calc(14px + env(safe-area-inset-bottom)); font-size: 10px; color: var(--ash-4); }
 
+.save-title-screen { justify-content: flex-start; overflow-y: auto; touch-action: pan-y; padding-top: max(24px, calc(env(safe-area-inset-top) + 20px)); padding-bottom: 54px; }
+.save-title-screen .tagline { margin-bottom: 12px; }
+.save-browser { display: flex; flex-direction: column; gap: 7px; width: min(620px, 94vw); text-align: left; }
+.save-section-title { margin: 8px 2px 0; color: var(--ember); font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
+.continue-latest { align-self: center; width: min(320px, 100%); padding: 13px; }
+.save-slot { display: flex; align-items: center; gap: 7px; padding: 9px; background: var(--ash-1); border: 1px solid var(--ash-3); border-radius: 7px; }
+.save-slot.debug-slot { border-left: 3px solid #a06fd1; }
+.save-slot.invalid-slot { border-color: var(--blood); }
+.save-slot-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.save-slot-copy b, .save-slot-copy span, .save-slot-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-slot-copy b { color: var(--gold); font-size: 12px; }
+.save-slot-copy span { font-size: 12px; }
+.save-slot-copy small { color: var(--text-dim); font-size: 10px; }
+.save-slot button { flex: 0 0 auto; padding: 9px 10px; font-size: 11px; }
+.save-slot .delete-slot { color: var(--blood); }
+.title-actions { margin-top: 5px; }
+.snapshot-create { display: flex; gap: 7px; margin-top: 10px; }
+.snapshot-create input { flex: 1; min-width: 0; padding: 10px; color: var(--text); background: var(--ash-1); border: 1px solid var(--ash-4); border-radius: 6px; font: 13px var(--ui-font); user-select: text; -webkit-user-select: text; }
+
+@media (max-width: 480px) {
+  .save-title-screen h1 { font-size: 30px; }
+  .save-slot { flex-wrap: wrap; }
+  .save-slot-copy { flex-basis: calc(100% - 96px); }
+  .save-slot button { flex: 1 1 88px; }
+  .empty-slot .save-slot-copy { flex-basis: auto; }
+}
+
 </style>
 <script>
 /* ===== src/core/rng.js ===== */
@@ -553,8 +580,43 @@ button:disabled { opacity: .4; }
       { id: 'ash_heart', w: 2, min: 1, max: 1 },
       { kind: 'gear', w: 6, tier: 3 },
       { kind: 'trinket', w: 3 }
+    ],
+    /* Sostituisce 'rich' nella valle dopo Vaelrik: stessa forma, tutto
+       più raro e più ricco, così i forzieri restano un motivo per tornare
+       anche a campagna finita. */
+    hoard: [
+      { id: 'gold', w: 6, min: 200, max: 450 },
+      { id: 'ember_ingot', w: 4, min: 2, max: 4 },
+      { id: 'ash_heart', w: 3, min: 1, max: 2 },
+      { kind: 'gear', w: 8, tier: 4 },
+      { kind: 'trinket', w: 4 }
     ]
   };
+
+  /* ---------------- Affissi dei nemici d'élite ----------------
+     Scelti per cambiare COME si combatte, non solo quanto dura lo
+     scontro: un'élite deve porre una domanda diversa, non solo più vita
+     e più danno. `mods` è letto da E.makeEnemy in entities.js. */
+  D.enemyAffixes = {
+    swift:   { key: 'swift',   name: 'Veloce',     aura: '#c9a6ff', mods: { speedMult: 1.35, telegraphMult: 0.72 } },
+    vampiric:{ key: 'vampiric',name: 'Vampirico',  aura: '#8f2020', mods: { lifesteal: 0.35 } },
+    volatile:{ key: 'volatile',name: 'Deflagrante',aura: '#f06c3a', mods: { deathBurst: { radius: 34, dmg: 18 } } },
+    ashen:   { key: 'ashen',   name: 'Cinereo',    aura: '#6b6577', mods: { ashCloud: true } },
+    burning: { key: 'burning', name: 'Ardente',    aura: '#ff6b3a', mods: { touchFire: 5 } },
+    armored: { key: 'armored', name: 'Corazzato',  aura: '#8f96a3', mods: { armorBonus: 6, staggerRes: 0.5 } }
+  };
+  D.enemyAffixOrder = ['swift', 'vampiric', 'volatile', 'ashen', 'burning', 'armored'];
+
+  /* Modificatori dei siti dopo il primo sgombero. Il peso `w` è letto
+     direttamente da Rng.weighted; `none` mantiene la scena ordinaria. */
+  D.siteMods = {
+    none:     { key: 'none',     w: 10 },
+    infested: { key: 'infested', w: 3, label: 'Infestato', extraSpawns: 2 },
+    cursed:   { key: 'cursed',   w: 2, label: 'Maledetto', eliteBiasAdd: 0.35 },
+    hasty:    { key: 'hasty',    w: 2, label: 'Abbandonato in Fretta', removeSpawnFrac: 0.5,
+                rewardBonus: { goldMult: 1.4, tier: 1 } }
+  };
+  D.siteModList = Object.keys(D.siteMods).map(k => D.siteMods[k]);
 
   /* Nodi di raccolta sparsi nel mondo */
   D.harvestNodes = {
@@ -635,7 +697,10 @@ button:disabled { opacity: .4; }
         { role: 'melee', dx: 3, dy: 1 },
         { role: 'ranged', dx: 0, dy: -3 }
       ],
-      chests: [{ dx: -3, dy: -2, table: 'common' }]
+      chests: [{ dx: -3, dy: -2, table: 'common' }],
+      /* Ricompensa per sgomberare l'intero sito (main.js, updateSiteObjective).
+         gold è un intervallo [min,max]; tier alimenta CV.Loot.makeGear. */
+      clearReward: { xp: 40, gold: [15, 35], tier: 2 }
     },
 
     den: {
@@ -654,7 +719,8 @@ button:disabled { opacity: .4; }
         { role: 'beast', dx: 2, dy: 0, sightMult: 0.45 },
         { role: 'beast', dx: 0, dy: 2, sightMult: 0.45 }
       ],
-      nodes: [{ type: 'bones', dx: 1, dy: -2 }]
+      nodes: [{ type: 'bones', dx: 1, dy: -2 }],
+      clearReward: { xp: 30, gold: [10, 25], tier: 1 }
     },
 
     ruin: {
@@ -668,7 +734,8 @@ button:disabled { opacity: .4; }
         { kind: 'gravestone', dx: -2, dy: 2 }, { kind: 'boneheap', dx: 2, dy: 2 }
       ],
       spawns: [{ role: 'bruiser', dx: 0, dy: -1, hpMult: 1.5 }],
-      chests: [{ dx: 0, dy: 1, table: 'common' }]
+      chests: [{ dx: 0, dy: 1, table: 'common' }],
+      clearReward: { xp: 35, gold: [15, 30], tier: 2 }
     },
 
     shrine: {
@@ -711,7 +778,58 @@ button:disabled { opacity: .4; }
       spawns: [
         { role: 'beast', dx: -2, dy: -2 },
         { role: 'beast', dx: 3, dy: 1 }
-      ]
+      ],
+      clearReward: { xp: 25, gold: [10, 20], tier: 1 }
+    },
+
+    pyre_circle: {
+      id: 'pyre_circle', name: 'Cerchio del Rogo', r: 5, weight: 2,
+      biomes: ['moor', 'forest', 'keep'],
+      needs: ['ranged'],
+      carve: { mode: 'ring', key: 'stone', gaps: 0.55 },
+      props: [
+        { kind: 'campfire', dx: 0, dy: 0 },
+        { kind: 'pillar', dx: -2, dy: 2 }, { kind: 'pillar', dx: 2, dy: 2 }
+      ],
+      spawns: [
+        { role: 'ranged', dx: -3, dy: -1 },
+        { role: 'ranged', dx: 3, dy: -1 },
+        { role: 'ranged', dx: 0, dy: 3 }
+      ],
+      clearReward: { xp: 45, gold: [20, 40], tier: 2 }
+    },
+
+    bone_pit: {
+      id: 'bone_pit', name: "Fossa d'Ossa", r: 4, weight: 3,
+      biomes: ['moor', 'forest', 'cave'],
+      needs: ['beast'],
+      carve: { mode: 'clear', key: 'dirt' },
+      props: [
+        { kind: 'boneheap', dx: -2, dy: -1 }, { kind: 'boneheap', dx: 2, dy: -1 },
+        { kind: 'gravestone', dx: 0, dy: 2 }
+      ],
+      nodes: [{ type: 'bones', dx: 0, dy: 0 }],
+      spawns: [
+        { role: 'beast', dx: -2, dy: -2, hpMult: 0.75 },
+        { role: 'beast', dx: 2, dy: -2, hpMult: 0.75 },
+        { role: 'beast', dx: -2, dy: 2, hpMult: 0.75 },
+        { role: 'beast', dx: 2, dy: 2, hpMult: 0.75 }
+      ],
+      clearReward: { xp: 35, gold: [5, 15], tier: 1 }
+    },
+
+    profaned_altar: {
+      id: 'profaned_altar', name: 'Altare Profanato', r: 4, weight: 4,
+      biomes: ['forest', 'cave', 'keep'],
+      needs: ['melee'],
+      carve: { mode: 'clear', key: 'stone' },
+      props: [
+        { kind: 'pillar', dx: -2, dy: 0 }, { kind: 'pillar', dx: 2, dy: 0 },
+        { kind: 'boneheap', dx: 0, dy: -2 }
+      ],
+      shrine: { dx: 0, dy: 1 },
+      spawns: [{ role: 'melee', dx: 0, dy: -1, hpMult: 1.75, dmgMult: 1.15 }],
+      clearReward: { xp: 50, gold: [15, 30], tier: 2 }
     }
   };
 
@@ -749,7 +867,8 @@ button:disabled { opacity: .4; }
         { kind: 'forge', tx: 31, ty: 22 },
         { kind: 'cauldron', tx: 15, ty: 22 },
         { kind: 'campfire', tx: 24, ty: 27 },
-        { kind: 'sign', tx: 24, ty: 41, text: 'ASHFORD — ultimo focolare della valle' }
+        { kind: 'sign', tx: 24, ty: 41, text: 'ASHFORD — ultimo focolare della valle' },
+        { kind: 'noticeboard', tx: 24, ty: 15 }
       ],
       chests: [{ tx: 34, ty: 15, table: 'poor' }]
     },
@@ -961,6 +1080,11 @@ button:disabled { opacity: .4; }
           { text: '(Congedarsi)', act: { close: true } }
         ] },
       { id: 'm_end2', sub: true, say: 'Adesso si ricostruisce. È un lavoro più lento e più noioso di quello che hai fatto tu. Ma dura di più.',
+        opts: [
+          { text: 'La valle è ancora pericolosa?', to: 'm_end3' },
+          { text: '(Congedarsi)', act: { close: true } }
+        ] },
+      { id: 'm_end3', sub: true, say: 'Più che mai, in certi angoli. Chi va a cercare nei luoghi più remoti lo scopre da solo.',
         opts: [{ text: '(Congedarsi)', act: { close: true } }] },
 
       { id: 'm_m4_wait', cond: { questStage: ['q_main4', 0] },
@@ -1271,7 +1395,7 @@ button:disabled { opacity: .4; }
       inv: [], equip: { weapon: null, armor: null, trinket: null },
       effects: [],
       known: {},             /* ingrediente -> indici effetto scoperti */
-      quests: {}, flags: {},
+      quests: {}, flags: {}, contracts: [],
       zone: D.startZone, x: 0, y: 0,
       stats: null,
       playtime: 0, kills: 0, deaths: 0,
@@ -1810,6 +1934,151 @@ button:disabled { opacity: .4; }
   };
 
   /* ================================================================
+     CONTRATTI — bacheca di Ashford, generati e ripetibili.
+     Stessa filosofia dichiarativa delle missioni: un contratto è dati
+     (tipo, bersaglio, conteggio, ricompensa), non codice. A differenza
+     delle missioni scritte a mano, si rigenerano da soli quando riscossi:
+     sono il motivo per tornare quando la trama è già stata vista.
+     ================================================================ */
+  const Contracts = {};
+  const CONTRACT_SLOTS = 3;
+
+  /* Oggetti di raccolta ragionevoli da chiedere: comuni, non di missione,
+     ottenibili in più zone così un contratto non blocca mai nessuno. */
+  Contracts.collectPool = [
+    'wolf_fang', 'bandit_mark', 'iron_ore', 'pelt', 'leather',
+    'coal', 'bone', 'ashbloom', 'blackroot', 'beetlewing', 'nightcrown'
+  ];
+
+  Contracts.zonesForContracts = function () {
+    return D.zoneOrder.filter(id => !D.zones[id].safe);
+  };
+
+  /* Fascia approssimativa di una zona, usata solo per scalare oro/PE/tier
+     del bottino: non è un sistema nuovo, riusa l'ordine delle zone. */
+  Contracts.tierForZone = function (zoneId) {
+    const idx = D.zoneOrder.indexOf(zoneId);
+    return Math.max(1, Math.min(3, idx));
+  };
+
+  Contracts.pickHuntTarget = function (zoneId, rng) {
+    const zdef = D.zones[zoneId];
+    const pool = [];
+    if (zdef.roles) for (const k in zdef.roles) pool.push(zdef.roles[k]);
+    if (zdef.spawns) for (const s of zdef.spawns) pool.push(s.id);
+    const uniq = Array.from(new Set(pool));
+    return uniq.length ? rng.pick(uniq) : null;
+  };
+
+  /* Genera un contratto casuale. 'hunt' e 'clear' si completano incontrando
+     dal vivo un'élite o sgomberando un sito (E.killEnemy / main.js
+     grantSiteReward chiamano Contracts.onKill / onSiteCleared); 'collect'
+     si legge direttamente dall'inventario, niente da agganciare. */
+  Contracts.roll = function (rng, level, endgame) {
+    const zones = Contracts.zonesForContracts();
+    const type = rng.pick(['hunt', 'hunt', 'clear', 'collect']);
+    const cid = 'c' + Date.now().toString(36) + Math.floor(rng.next() * 1e6).toString(36);
+    const rarBias = endgame ? 0.3 : 0.12;
+
+    if (type === 'hunt') {
+      /* Fino a tre tentativi: se una zona non ha nemici da cacciare
+         (non dovrebbe succedere, ma i dati cambiano) si ripiega su 'collect'. */
+      for (let tries = 0; tries < 3; tries++) {
+        const zoneId = rng.pick(zones);
+        const defId = Contracts.pickHuntTarget(zoneId, rng);
+        if (!defId) continue;
+        const zdef = D.zones[zoneId], tier = Contracts.tierForZone(zoneId);
+        const enemyName = D.enemies[defId].name;
+        const goldBase = 20 + level * 5 + tier * 15, xpBase = 30 + level * 6 + tier * 12;
+        return {
+          cid: cid, type: 'hunt', zoneId: zoneId, defId: defId, count: 1, progress: 0, done: false,
+          title: 'Caccia: ' + enemyName + ' elite',
+          desc: 'Un ' + enemyName.toLowerCase() + ' fuori dal comune si aggira in ' + zdef.name + '. Portane la prova.',
+          reward: { gold: [goldBase, goldBase + 20], xp: xpBase, tier: Math.min(4, tier + 1 + (endgame ? 1 : 0)), rarBias: rarBias }
+        };
+      }
+    }
+    if (type === 'clear') {
+      const zoneId = rng.pick(zones);
+      const zdef = D.zones[zoneId], tier = Contracts.tierForZone(zoneId);
+      const goldBase = 20 + level * 5 + tier * 15, xpBase = 30 + level * 6 + tier * 12;
+      return {
+        cid: cid, type: 'clear', zoneId: zoneId, count: 1, progress: 0, done: false,
+        title: 'Sgombero: ' + zdef.name,
+        desc: 'Un accampamento nemico si è stabilito in ' + zdef.name + '. Sgomberalo.',
+        reward: { gold: [goldBase, goldBase + 15], xp: Math.round(xpBase * 0.8), tier: Math.min(4, tier + (endgame ? 1 : 0)), rarBias: rarBias }
+      };
+    }
+    const itemId = rng.pick(Contracts.collectPool);
+    const base = D.base(itemId);
+    const count = rng.int(3, 6);
+    const goldBase = 20 + level * 4;
+    return {
+      cid: cid, type: 'collect', itemId: itemId, count: count, done: false,
+      title: 'Raccolta: ' + base.name,
+      desc: 'Serve ' + base.name.toLowerCase() + ' in bacheca. Portane ' + count + '.',
+      reward: { gold: [Math.round(goldBase * 0.8), goldBase + 15], xp: Math.round((30 + level * 4) * 0.7) }
+    };
+  };
+
+  Contracts.ensure = function (p, rng, level, endgame) {
+    if (!p.contracts) p.contracts = [];
+    while (p.contracts.length < CONTRACT_SLOTS) p.contracts.push(Contracts.roll(rng, level, endgame));
+  };
+
+  Contracts.state = function (p, c) {
+    if (c.done) return 'done';
+    if (c.type === 'collect') return P.count(p, c.itemId) >= c.count ? 'ready' : 'active';
+    return (c.progress || 0) >= c.count ? 'ready' : 'active';
+  };
+
+  Contracts.progressText = function (p, c) {
+    if (c.type === 'collect') return Math.min(P.count(p, c.itemId), c.count) + ' / ' + c.count;
+    return Math.min(c.progress || 0, c.count) + ' / ' + c.count;
+  };
+
+  Contracts.claim = function (p, cid, rng, level, endgame, out) {
+    const i = (p.contracts || []).findIndex(c => c.cid === cid);
+    if (i < 0) return { ok: false };
+    const c = p.contracts[i];
+    if (Contracts.state(p, c) !== 'ready') return { ok: false, why: 'Non ancora completato.' };
+    const rw = c.reward || {};
+    if (c.type === 'collect') P.removeById(p, c.itemId, c.count);
+    if (rw.gold) p.gold += rng.int(rw.gold[0], rw.gold[1]);
+    if (rw.xp) P.gainXp(p, rw.xp, out);
+    let item = null;
+    if (rw.tier) item = Loot.makeGear(rng, rw.tier, rw.rarBias || 0.15);
+    if (item) P.addItem(p, item);
+    p.contracts.splice(i, 1);
+    Contracts.ensure(p, rng, level, endgame);
+    P.recalc(p);
+    return { ok: true, contract: c, item: item };
+  };
+
+  /* isElite viene da e.elite (entities.js): true anche per i nemici con
+     affissi, non solo per i named. Un contratto di caccia si completa
+     incontrando un'élite della specie giusta nella zona giusta. */
+  Contracts.onKill = function (p, defId, isElite, zoneId, out) {
+    if (!isElite || !p.contracts) return;
+    for (const c of p.contracts) {
+      if (c.done || c.type !== 'hunt' || c.defId !== defId || c.zoneId !== zoneId) continue;
+      if ((c.progress || 0) >= c.count) continue;
+      c.progress = (c.progress || 0) + 1;
+      if (out) out.push({ type: 'contract', event: 'progress', contract: c });
+    }
+  };
+
+  Contracts.onSiteCleared = function (p, zoneId, out) {
+    if (!p.contracts) return;
+    for (const c of p.contracts) {
+      if (c.done || c.type !== 'clear' || c.zoneId !== zoneId) continue;
+      if ((c.progress || 0) >= c.count) continue;
+      c.progress = (c.progress || 0) + 1;
+      if (out) out.push({ type: 'contract', event: 'progress', contract: c });
+    }
+  };
+
+  /* ================================================================
      MISSIONI
      ================================================================ */
   const Q = {};
@@ -2017,6 +2286,7 @@ button:disabled { opacity: .4; }
     p.flags = p.flags || {};
     p.quests = p.quests || {};
     p.discovered = p.discovered || {};
+    p.contracts = p.contracts || [];
     P.setUidCounter((raw.uid || 1) + 1);
     P.recalc(p);
     return { player: p, world: raw.world || {}, settings: raw.settings || {}, t: raw.t };
@@ -2026,6 +2296,7 @@ button:disabled { opacity: .4; }
   CV.Smith = Smith;
   CV.Alch = Alch;
   CV.Quests = Q;
+  CV.Contracts = Contracts;
   CV.Dialogue = Dlg;
   CV.Save = Save;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -2505,6 +2776,24 @@ button:disabled { opacity: .4; }
     '.....kkLLkk.....',
     '................',
     '................',
+    '................'
+  ];
+  SPR.noticeboard = [
+    '................',
+    '.kkkkkkkkkkkkkk.',
+    '.lLLLLLLLLLLLLl.',
+    '.lLwwwLLwwwLLLl.',
+    '.lLwrwLLwLwLLLl.',
+    '.lLwwwLLwwwLLLl.',
+    '.lLLLLLLwwwLLLl.',
+    '.lLLLLLLwrwLLLl.',
+    '.lLLLLLLwwwLLLl.',
+    '.lLLLLLLLLLLLLl.',
+    '.kkkkkkkkkkkkkk.',
+    '......kLLk......',
+    '......kLLk......',
+    '......kLLk......',
+    '.....kkLLkk.....',
     '................'
   ];
   SPR.portal = [
@@ -3160,20 +3449,30 @@ button:disabled { opacity: .4; }
      ================================================================ */
   const propCache = new Map();
 
+  /* Otto varianti (0-3 vivi, 4-7 secchi): un bosco in cui ogni albero ha la
+     stessa altezza non ha profondità. Il tronco si allunga verso il basso
+     (la chioma resta ferma in cima) per variare l'altezza, e la chioma
+     alterna due raggi per variare l'ampiezza — sempre a coordinate intere,
+     così restano nitidi come il resto della pixel art invece di sfumarsi
+     per un ridimensionamento frazionario. */
   function tree(variant) {
     const key = 'tree' + variant;
     if (propCache.has(key)) return propCache.get(key);
-    const w = 32, h = 44;
+    const dead = variant >= 4;
+    const sizeIdx = variant % 4;
+    const trunkExtra = [0, 4, 8, 12][sizeIdx];
+    const wide = sizeIdx % 2 === 1;
+    const w = 32, h = 44 + trunkExtra;
     const cv = makeCanvas(w, h);
     const ctx = cv.getContext('2d');
     const rng = new CV.Rng(7000 + variant * 131);
-    const dead = variant >= 2;
 
-    /* Tronco */
+    /* Tronco: parte sempre dalla stessa riga (26, dove finisce la chioma)
+       e si allunga verso il basso fino al nuovo bordo del canvas. */
     ctx.fillStyle = '#241a14';
-    ctx.fillRect(13, 26, 6, 18);
+    ctx.fillRect(13, 26, 6, 18 + trunkExtra);
     ctx.fillStyle = '#3a2a1e';
-    ctx.fillRect(14, 26, 3, 18);
+    ctx.fillRect(14, 26, 3, 18 + trunkExtra);
 
     if (dead) {
       /* Albero secco: solo rami */
@@ -3190,12 +3489,13 @@ button:disabled { opacity: .4; }
       for (let i = 0; i < 14; i++) ctx.fillRect(4 + rng.next() * 24, 4 + rng.next() * 22, 2, 2);
     } else {
       /* Chioma: grappoli di cerchi pixelati */
-      const dark = variant === 0 ? '#243a26' : '#2b3a2c';
-      const mid = variant === 0 ? '#31502f' : '#3a4d35';
-      const lit = variant === 0 ? '#41653a' : '#4c6244';
+      const dark = sizeIdx % 2 === 0 ? '#243a26' : '#2b3a2c';
+      const mid = sizeIdx % 2 === 0 ? '#31502f' : '#3a4d35';
+      const lit = sizeIdx % 2 === 0 ? '#41653a' : '#4c6244';
+      const rr = wide ? 2 : 0;
       const blobs = [[16, 14, 13], [9, 19, 9], [23, 19, 9], [16, 22, 11], [12, 10, 7], [21, 11, 7]];
-      for (const [cx, cy, r] of blobs) { ctx.fillStyle = dark; circle(ctx, cx, cy, r); }
-      for (const [cx, cy, r] of blobs) { ctx.fillStyle = mid; circle(ctx, cx, cy - 1, r - 2); }
+      for (const [cx, cy, r] of blobs) { ctx.fillStyle = dark; circle(ctx, cx, cy, r + rr); }
+      for (const [cx, cy, r] of blobs) { ctx.fillStyle = mid; circle(ctx, cx, cy - 1, r + rr - 2); }
       for (let i = 0; i < 26; i++) {
         ctx.fillStyle = lit;
         ctx.fillRect(6 + Math.floor(rng.next() * 20), 5 + Math.floor(rng.next() * 18), 2, 2);
@@ -3640,7 +3940,7 @@ button:disabled { opacity: .4; }
     MASK_VARIANTS, edgeMask, edgePiece, getShadowTex,
     sprite, flashOf, buildTileAtlas, tileIndex,
     getTileAtlas: () => tileAtlas || buildTileAtlas(),
-    tree, rock, bush, house, pillar, circle, iconFor, makeCanvas,
+    tree, rock, bush, house, pillar, circle, ellip, iconFor, makeCanvas,
     stump, tallgrass, flowers, mushrooms, boneheap, barrel, crate,
     gravestone, fence, stalagmite, cobweb, banner
   };
@@ -4311,6 +4611,9 @@ button:disabled { opacity: .4; }
   const P = CV.Player;
   const M = CV.M;
   const T = 16;
+  /* Intensità del rilievo del terreno (passata di luce macro in
+     buildZoneCanvas). Un solo numero per tarare l'intero effetto. */
+  const RELIEF = 0.55;
 
   const R = {
     canvas: null, ctx: null,
@@ -4440,6 +4743,38 @@ button:disabled { opacity: .4; }
     [1, -1, 4], [1, 1, 5], [-1, 1, 6], [-1, -1, 7]
   ];
 
+  /* Mappa di luce del terreno: un pixel per tile. Combina la pendenza
+     ricavata da `z.elev` (luce fissa da nord-ovest, coerente col
+     gradiente degli sprite in art.js) con un rumore a bassa frequenza
+     che aggiunge chiazze larghe di luce e ombra — la modulazione su
+     scala di mappa che manca del tutto se si guarda solo la pendenza
+     tile per tile. Ogni pixel è bianco (schiarisce) o nero (scurisce):
+     lo smoothing acceso alla stesura fonde i due in una sfumatura. */
+  function buildRelief(z) {
+    const w = z.w, h = z.h;
+    const cv = A.makeCanvas(w, h);
+    const rctx = cv.getContext('2d');
+    const img = rctx.createImageData(w, h);
+    const d = img.data;
+    const elev = z.elev;
+    const getE = (x, y) => elev[M.clamp(y, 0, h - 1) * w + M.clamp(x, 0, w - 1)];
+    const seed = z.def.seed + 8100;
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const slope = ((getE(x - 1, y) - getE(x + 1, y)) + (getE(x, y - 1) - getE(x, y + 1))) / 255;
+        const macro = CV.noise.fbm(x / 9, y / 9, seed, 2) * 2 - 1;
+        const s = M.clamp(slope * 0.5 + macro * 0.4, -1, 1);
+        const i = (y * w + x) * 4;
+        const a = Math.round(Math.abs(s) * RELIEF * 90);
+        if (s >= 0) { d[i] = 255; d[i + 1] = 255; d[i + 2] = 255; d[i + 3] = a; }
+        else { d[i + 3] = a; }
+      }
+    }
+    rctx.putImageData(img, 0, 0);
+    return cv;
+  }
+
   function buildZoneCanvas(z) {
     if (R.zoneId === z.id && R.zoneCanvas) return R.zoneCanvas;
     const atlas = A.getTileAtlas();
@@ -4492,6 +4827,17 @@ button:disabled { opacity: .4; }
         }
       }
     }
+
+    /* Passata 2.5: rilievo del terreno. Un pixel per tile, con lo
+       smoothing acceso quando viene steso: il browser lo trasforma in una
+       sfumatura continua invece che in un mosaico quadrettato, e questo
+       attenua anche i confini a scalino fra terreni diversi lasciati
+       dalle passate precedenti. È la luce che manca alle zone a cielo
+       aperto: senza, ogni pixel della mappa riceve la stessa luce e il
+       terreno legge come una texture invece che come un luogo. */
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(buildRelief(z), 0, 0, z.w, z.h, 0, 0, z.pxW, z.pxH);
+    ctx.imageSmoothingEnabled = false;
 
     /* Passata 3: i muri prendono forma. Un muro non è un rettangolo di
        colore: ha una cima illuminata, spigoli, e una faccia frontale in
@@ -4572,6 +4918,27 @@ button:disabled { opacity: .4; }
       }
     }
 
+    /* Passata 5: ombre proiettate. Solo dagli oggetti solidi (hanno `col`):
+       alberi, rocce, case, tronchi — non ogni ciuffo d'erba, o il bosco
+       diventerebbe un pulviscolo di macchie invece che restare leggibile.
+       Un'ellisse schiacciata ancorata al punto di contatto col terreno,
+       non una copia deformata dello sprite: un top-down non ha un vero
+       "profilo" da proiettare, e deformare l'intera sagoma la stacca
+       visibilmente dalla base quando l'oggetto è alto (è quello che
+       succedeva prima). L'ellisse resta sempre attaccata, qualunque sia
+       la forma o l'altezza dell'immagine sopra. Baked col terreno: a
+       gioco avviato costa zero, e finisce sotto tutto — giocatore
+       compreso, che ci cammina sopra. */
+    ctx.globalAlpha = 0.20;
+    ctx.fillStyle = '#050308';
+    for (const p of z.props) {
+      if (!p.col) continue;
+      const rx = Math.max(7, p.col.w * 0.85);
+      const ry = Math.max(3, rx * 0.4);
+      A.ellip(ctx, Math.round(p.x + rx * 0.22), Math.round(p.y + ry * 0.35), Math.round(rx), Math.round(ry));
+    }
+    ctx.globalAlpha = 1;
+
     /* Memorizza dove sta l'acqua: il renderer la anima a ogni fotogramma */
     R.waterTiles = [];
     for (let ty = 0; ty < z.h; ty++) {
@@ -4644,6 +5011,8 @@ button:disabled { opacity: .4; }
     drawLiquids(b, ox, oy);
     drawDecals(b, G, ox, oy);
     drawGroundFog(b, ox, oy);
+    drawPlaneVeil(b, G.zone.def.biome);
+    drawSiteMods(b, G.zone, ox, oy);
 
     /* Raccolta di tutto ciò che va ordinato per profondità */
     const list = [];
@@ -4873,6 +5242,41 @@ button:disabled { opacity: .4; }
     }
   }
 
+  /* Vela leggerissima sul solo terreno, prima che entità e prop vengano
+     disegnati sopra: schiaccia il fondo verso il colore medio del bioma,
+     così chi cammina sul terreno resta a contrasto pieno invece di
+     confondersi con esso. Riusa la tabella GRADE già usata da
+     applyGrade(), senza introdurne una seconda. */
+  function drawPlaneVeil(b, biome) {
+    const g = GRADE[biome] || GRADE.moor;
+    b.globalAlpha = 0.10;
+    b.fillStyle = g.shadow;
+    b.fillRect(0, 0, R.viewW, R.viewH);
+    b.globalAlpha = 1;
+  }
+
+  /* Alone al suolo per rendere leggibile una variante prima dello scontro. */
+  function drawSiteMods(b, z, ox, oy) {
+    const colors = { infested: '#7cc46a', cursed: '#c9a6ff', hasty: '#ffd166' };
+    for (const site of (z.sites || [])) {
+      const color = colors[site.mod];
+      if (!color) continue;
+      const x = site.tx * T + 8 - ox, y = site.ty * T + 8 - oy;
+      const r = site.r * T;
+      if (x + r < 0 || y + r < 0 || x - r > R.viewW || y - r > R.viewH) continue;
+      b.globalAlpha = 0.16 + Math.sin(R.time * 2.4 + site.tx) * 0.05;
+      b.strokeStyle = color;
+      b.lineWidth = 2;
+      b.beginPath();
+      b.ellipse(Math.round(x), Math.round(y), r, r * 0.58, 0, 0, Math.PI * 2);
+      b.stroke();
+      b.globalAlpha = 0.05;
+      b.fillStyle = color;
+      b.fill();
+    }
+    b.globalAlpha = 1;
+  }
+
   /* ---------------- Elementi del mondo ---------------- */
   /* Ombra morbida: un'ellisse sfumata pre-renderizzata, scalata al volo.
      Molto più naturale del disco pixelato di prima. */
@@ -4881,6 +5285,13 @@ button:disabled { opacity: .4; }
     const ww = w * 1.7, hh = Math.max(4, h * 1.7);
     b.imageSmoothingEnabled = true;
     b.drawImage(t, Math.round(x - ww / 2), Math.round(y - hh / 2), Math.round(ww), Math.round(hh));
+    /* Ombra di contatto: stretta, scura, senza sfumatura. È quello che fa
+       smettere gli sprite di sembrare sospesi sopra il terreno invece che
+       poggiati sopra. */
+    b.globalAlpha = 0.5;
+    b.fillStyle = '#050308';
+    A.ellip(b, Math.round(x), Math.round(y), Math.round(w * 0.28), Math.round(h * 0.4));
+    b.globalAlpha = 1;
     b.imageSmoothingEnabled = false;
   }
 
@@ -5068,6 +5479,18 @@ button:disabled { opacity: .4; }
 
     shadow(b, x, y + e.radius - 1, e.radius * 2, 5);
 
+    /* Alone d'affisso: identifica un'élite a distanza, prima ancora di
+       leggerne il nome sopra la barra vita. */
+    if (e.affixAura) {
+      b.globalAlpha = 0.55 + Math.sin(R.time * 3.2) * 0.12;
+      b.strokeStyle = e.affixAura;
+      b.lineWidth = 2;
+      b.beginPath();
+      b.ellipse(x, y + e.radius - 1, e.radius + 3, (e.radius + 3) * 0.5, 0, 0, Math.PI * 2);
+      b.stroke();
+      b.globalAlpha = 1;
+    }
+
     /* Anello sul bersaglio agganciato: dice a colpo d'occhio chi colpirai.
        Senza questo, l'assistenza di mira lavora ma il giocatore non lo sa. */
     if (e === G.pe.target && !G.pe.dead) {
@@ -5092,13 +5515,16 @@ button:disabled { opacity: .4; }
        nell'ultimo terzo pulsa e si contorna di bianco: l'occhio coglie
        il cambio di colore molto prima di stimare un riempimento. */
     if (e.state === 'telegraph') {
-      const f = Math.min(1, e.stateT / e.def.telegraph);
+      const tgMult = (e.affixMods && e.affixMods.telegraphMult) || 1;
+      const f = Math.min(1, e.stateT / (e.def.telegraph * tgMult));
       const dir = Math.atan2(G.pe.y - e.y, G.pe.x - e.x);
       const reach = e.def.ai === 'ranged' ? 26 : e.def.attackRange + 8;
       const imminent = f > 0.66;
       const pulse = imminent ? (Math.sin(R.time * 34) * 0.5 + 0.5) : 0;
+      /* Il nemico cinereo si legge peggio: il proprio telegrafo è più fioco. */
+      const readability = (e.affixMods && e.affixMods.ashCloud) ? 0.6 : 1;
 
-      b.globalAlpha = 0.18 + f * 0.34 + pulse * 0.22;
+      b.globalAlpha = (0.18 + f * 0.34 + pulse * 0.22) * readability;
       b.fillStyle = imminent ? (pulse > 0.5 ? '#ffd166' : '#ff8a5c') : '#c33636';
       b.beginPath();
       b.moveTo(x, y);
@@ -5107,7 +5533,7 @@ button:disabled { opacity: .4; }
       b.fill();
 
       if (imminent) {
-        b.globalAlpha = 0.55 + pulse * 0.45;
+        b.globalAlpha = (0.55 + pulse * 0.45) * readability;
         b.strokeStyle = '#fff3d0';
         b.lineWidth = 1;
         b.stroke();
@@ -5139,7 +5565,8 @@ button:disabled { opacity: .4; }
       const k = e.hitT / 0.26;
       sx = 1 + k * 0.30; sy = 1 - k * 0.22;
     } else if (e.state === 'telegraph') {
-      const f = Math.min(1, e.stateT / Math.max(0.01, e.def.telegraph));
+      const tgMult2 = (e.affixMods && e.affixMods.telegraphMult) || 1;
+      const f = Math.min(1, e.stateT / Math.max(0.01, e.def.telegraph * tgMult2));
       sx = 1 + f * 0.14; sy = 1 - f * 0.13;
     } else if (e.state === 'attack' && e.stateT < 0.18) {
       const f = 1 - e.stateT / 0.18;
@@ -5431,6 +5858,10 @@ button:disabled { opacity: .4; }
   const A = CV.Art;
   const M = CV.M;
   const T = 16;   /* dimensione del tile in pixel */
+  /* La nuova tabella dei siti cambia quali scene occupano gli indici
+     deterministici. Versionare le chiavi evita di applicare a un nuovo sito
+     lo stato persistito di una scena diversa nei salvataggi esistenti. */
+  const SITE_KEY_VERSION = 2;
 
   /* Indici dei tile nell'atlante */
   const TI = {};
@@ -5471,6 +5902,7 @@ button:disabled { opacity: .4; }
       for (let x = 0; x < z.w; x++) {
         const n = CV.noise.fbm(x / 9, y / 9, d.seed, 3);
         setTile(z, x, y, n > 0.58 ? 'dirt' : (n < 0.36 ? 'ash_grass' : 'grass'), false);
+        z.elev[idx(z, x, y)] = n * 255;
       }
     }
     /* Palizzata perimetrale con varchi verso le uscite */
@@ -5500,7 +5932,7 @@ button:disabled { opacity: .4; }
     }
 
     /* Alberi e cespugli negli spazi liberi */
-    scatterNature(z, rng, 26, 20, [0, 1], 0.5);
+    scatterNature(z, rng, 26, 20, [0, 1, 2, 3], 0.5);
     /* Uscita verso la brughiera: apre la palizzata */
     for (const ex of d.exits) clearAround(z, ex.tx, ex.ty, 2, 'path');
   }
@@ -5516,13 +5948,14 @@ button:disabled { opacity: .4; }
         else if (n < 0.34) key = 'dirt';
         if (n2 > 0.78 && n < 0.5) key = 'water';
         setTile(z, x, y, key, key === 'water');
+        z.elev[idx(z, x, y)] = n * 255;
       }
     }
     borderWalls(z, 'rock_wall');
     /* Sentiero irregolare che attraversa la brughiera */
     windingPath(z, rng, 32, z.h - 4, 60, 14, 'path');
     windingPath(z, rng, 32, 40, 4, 30, 'path');
-    scatterNature(z, rng, 30, 34, [2, 3], 0.35);
+    scatterNature(z, rng, 30, 34, [4, 5, 6, 7], 0.35);
     scatterRocks(z, rng, 26);
   }
 
@@ -5534,12 +5967,13 @@ button:disabled { opacity: .4; }
         /* Sottobosco: terra battuta e chiazze d'erba secca. Niente pietra,
            che in mezzo agli alberi legge come una macchia fredda fuori posto. */
         setTile(z, x, y, n > 0.6 ? 'dirt' : (n < 0.38 ? 'ash_grass' : 'grass'), false);
+        z.elev[idx(z, x, y)] = n * 255;
       }
     }
     borderWalls(z, 'rock_wall');
     windingPath(z, rng, z.w - 4, 32, 32, 4, 'path');
     /* Bosco fitto: la densità cresce lontano dai sentieri */
-    scatterNature(z, rng, 150, 70, [0, 1, 2], 0.9);
+    scatterNature(z, rng, 150, 70, [0, 1, 2, 3, 4, 6], 0.9);
     scatterRocks(z, rng, 16);
   }
 
@@ -5753,7 +6187,7 @@ button:disabled { opacity: .4; }
       if (rng.next() > (1 - edge) * edgeBias + 0.22) continue;
       const v = rng.pick(variants);
       const img = A.tree(v);
-      z.props.push({ kind: 'tree', img: img, sway: v >= 2 ? 0.35 : 0.6, x: tx * T + 8, y: ty * T + 16, ox: img.width / 2, oy: img.height,
+      z.props.push({ kind: 'tree', img: img, sway: v >= 4 ? 0.35 : 0.6, x: tx * T + 8, y: ty * T + 16, ox: img.width / 2, oy: img.height,
         col: { x: tx * T + 4, y: ty * T + 6, w: 9, h: 9 } });
       z.solid[i] = 1; busy[i] = 1;
       placed++;
@@ -6050,8 +6484,14 @@ button:disabled { opacity: .4; }
       const tx = rng.int(s.r + 3, z.w - s.r - 4);
       const ty = rng.int(s.r + 3, z.h - s.r - 4);
       if (!siteFits(z, s, tx, ty, busy, z.sites)) continue;
-      buildSite(z, s, tx, ty, z.sites.length, rng, resolveRole);
-      z.sites.push({ id: s.id, name: s.name, tx: tx, ty: ty, r: s.r });
+      const index = z.sites.length;
+      const built = buildSite(z, s, tx, ty, index, rng, resolveRole);
+      /* prefix e keys identificano il sito come obiettivo: sono ciò che
+         main.js legge per sapere quanti nemici del sito sono ancora vivi
+         (vedi updateSiteObjective) e sono deterministici — lo stesso seme
+         di zona produce sempre lo stesso sito allo stesso indice. */
+      z.sites.push({ id: s.id, name: s.name, tx: tx, ty: ty, r: s.r,
+        prefix: z.id + ':site' + SITE_KEY_VERSION + ':' + index, keys: built.keys });
       /* L'area occupata vale anche per i siti successivi */
       eachDisc(z, tx, ty, s.r + 1, (x, y, i) => { busy[i] = 1; });
     }
@@ -6060,7 +6500,7 @@ button:disabled { opacity: .4; }
   function buildSite(z, s, tx, ty, index, rng, resolveRole) {
     const biome = z.def.biome;
     const floor = floorKeyFor(biome, s.carve && s.carve.key);
-    const prefix = z.id + ':site' + index;
+    const prefix = z.id + ':site' + SITE_KEY_VERSION + ':' + index;
 
     /* 1. Si libera il terreno PRIMA di modificarlo, così le collisioni
           degli alberi rimossi spariscono insieme agli alberi. */
@@ -6070,8 +6510,14 @@ button:disabled { opacity: .4; }
     const mode = s.carve ? s.carve.mode : 'none';
     if (mode === 'clear') {
       eachDisc(z, tx, ty, s.r, (x, y) => setTile(z, x, y, floor, false));
+      /* Un pavimento spianato non può avere sotto il rilievo del terreno
+         originale: il renderer lo leggerebbe come un pavimento bitorzoluto. */
+      const flatElev = z.elev[idx(z, tx, ty)];
+      eachDisc(z, tx, ty, s.r, (x, y, i) => { z.elev[i] = flatElev; });
     } else if (mode === 'ring') {
       eachDisc(z, tx, ty, s.r - 1, (x, y) => setTile(z, x, y, floor, false));
+      const flatElev2 = z.elev[idx(z, tx, ty)];
+      eachDisc(z, tx, ty, s.r - 1, (x, y, i) => { z.elev[i] = flatElev2; });
       const wall = wallKeyFor(biome);
       const steps = Math.round(2 * Math.PI * (s.r - 1) * 1.7);
       for (let i = 0; i < steps; i++) {
@@ -6135,13 +6581,18 @@ button:disabled { opacity: .4; }
       return {
         key: keyPrefix + j, id: id,
         x: spot.tx * T + 8, y: spot.ty * T + 8,
+        siteIndex: index, spawnIndex: j,
         hpMult: sp.hpMult || 1, dmgMult: sp.dmgMult || 1, sightMult: sp.sightMult || 1
       };
     };
 
+    /* Le chiavi dei nemici piazzati qui (non quelli d'imboscata, che
+       restano una sorpresa a parte) sono ciò che rende il sito un
+       obiettivo verificabile: vedi z.sites.push in placeSites. */
+    const keys = [];
     (s.spawns || []).forEach((sp, j) => {
       const e = mkSpawn(sp, j, prefix + ':e');
-      if (e) z.siteSpawns.push(e);
+      if (e) { z.siteSpawns.push(e); keys.push(e.key); }
     });
 
     if (s.ambush) {
@@ -6155,6 +6606,59 @@ button:disabled { opacity: .4; }
                           r: s.ambush.radius || 46, spawns: list, done: false });
       }
     }
+    return { keys: keys };
+  }
+
+  /* Applica una variante deterministica ai siti già sgomberati. Il ciclo
+     zero resta intenzionalmente invariato rispetto alla prima campagna. */
+  function rollSiteMods(z, worldState) {
+    if (!D.siteMods || !D.siteModList) return;
+    const cycles = worldState.siteCycle = worldState.siteCycle || {};
+    const ready = worldState.siteCycleReady = worldState.siteCycleReady || {};
+    const now = Date.now() / 1000;
+
+    (z.sites || []).forEach((site, siteIndex) => {
+      const storedCycle = Math.max(0, cycles[site.prefix] | 0);
+      const cycle = ready[site.prefix] > now ? Math.max(0, storedCycle - 1) : storedCycle;
+      site.cycle = cycle;
+      const seed = Math.floor(CV.noise.hash2(siteIndex, cycle, z.def.seed + 7301) * 4294967296);
+      const rng = new CV.Rng(seed);
+      const mod = cycle === 0 ? D.siteMods.none : rng.weighted(D.siteModList);
+      site.mod = mod.key;
+      site.rewardBonus = mod.rewardBonus || null;
+      site.eliteBiasAdd = mod.eliteBiasAdd || 0;
+      if (mod.key === 'none') return;
+
+      site.name += ' — ' + mod.label;
+      let spawns = z.siteSpawns.filter(s => s.siteIndex === siteIndex);
+
+      if (mod.removeSpawnFrac && spawns.length > 1) {
+        const removeCount = Math.min(spawns.length - 1, Math.floor(spawns.length * mod.removeSpawnFrac));
+        const removed = new Set(rng.shuffle(spawns.slice()).slice(0, removeCount).map(s => s.key));
+        z.siteSpawns = z.siteSpawns.filter(s => !removed.has(s.key));
+        site.keys = site.keys.filter(k => !removed.has(k));
+        spawns = spawns.filter(s => !removed.has(s.key));
+      }
+
+      if (mod.extraSpawns && spawns.length) {
+        for (let j = 0; j < mod.extraSpawns; j++) {
+          const source = spawns[j % spawns.length];
+          const angle = rng.next() * Math.PI * 2;
+          const dist = 2 + (j % 2);
+          const spot = nearestFree(z,
+            site.tx + Math.round(Math.cos(angle) * dist),
+            site.ty + Math.round(Math.sin(angle) * dist), 4);
+          if (!spot) continue;
+          const extra = Object.assign({}, source, {
+            key: site.prefix + ':x' + cycle + ':' + j,
+            x: spot.tx * T + 8, y: spot.ty * T + 8,
+            spawnIndex: spawns.length + j
+          });
+          z.siteSpawns.push(extra);
+          site.keys.push(extra.key);
+        }
+      }
+    });
   }
 
   /* ================================================================
@@ -6169,11 +6673,20 @@ button:disabled { opacity: .4; }
       tiles: new Uint8Array(def.w * def.h),
       variant: new Uint8Array(def.w * def.h),
       solid: new Uint8Array(def.w * def.h),
+      elev: new Uint8Array(def.w * def.h),
       props: [], chests: [], nodes: [], npcs: [], exits: [], interactables: [],
       sites: [], siteSpawns: [], ambushes: [], shrines: [],
       spawnDefs: def.spawns || [], namedDefs: def.named || []
     };
     const rng = new CV.Rng(def.seed);
+
+    /* Quota di appoggio a bassa frequenza: i biomi a cielo aperto la
+       sovrascrivono col loro stesso rumore (riusato, non ricalcolato).
+       Miniera e Rocca scavano invece di generare rumore, ma restano
+       comunque con una quota plausibile per il rilievo del renderer. */
+    for (let y = 0; y < z.h; y++)
+      for (let x = 0; x < z.w; x++)
+        z.elev[idx(z, x, y)] = CV.noise.fbm(x / 14, y / 14, def.seed + 4200, 3) * 255;
 
     switch (def.biome) {
       case 'village': genVillage(z, rng); break;
@@ -6208,13 +6721,13 @@ button:disabled { opacity: .4; }
     /* Oggetti fissi dello scenario */
     (def.props || []).forEach(p => {
       clearAround(z, p.tx, p.ty, 1, floorKey);
-      const img = A.sprite(p.kind === 'forge' ? 'forge' : p.kind === 'cauldron' ? 'cauldron' : p.kind === 'sign' ? 'sign' : 'campfire');
+      const img = A.sprite(p.kind === 'forge' ? 'forge' : p.kind === 'cauldron' ? 'cauldron' : p.kind === 'sign' ? 'sign' : p.kind === 'noticeboard' ? 'noticeboard' : 'campfire');
       const o = { kind: p.kind, img: img, x: p.tx * T + 8, y: p.ty * T + 16, ox: 8, oy: 16, text: p.text,
-        col: p.kind === 'sign' ? null : { x: p.tx * T + 3, y: p.ty * T + 6, w: 11, h: 9 } };
+        col: (p.kind === 'sign' || p.kind === 'noticeboard') ? null : { x: p.tx * T + 3, y: p.ty * T + 6, w: 11, h: 9 } };
       z.props.push(o);
-      if (p.kind === 'forge' || p.kind === 'cauldron' || p.kind === 'campfire' || p.kind === 'sign') {
+      if (p.kind === 'forge' || p.kind === 'cauldron' || p.kind === 'campfire' || p.kind === 'sign' || p.kind === 'noticeboard') {
         z.interactables.push({ kind: p.kind, x: o.x, y: o.y - 8, r: 26, text: p.text,
-          label: p.kind === 'forge' ? 'Fucina' : p.kind === 'cauldron' ? 'Calderone' : p.kind === 'campfire' ? 'Riposa' : 'Leggi' });
+          label: p.kind === 'forge' ? 'Fucina' : p.kind === 'cauldron' ? 'Calderone' : p.kind === 'campfire' ? 'Riposa' : p.kind === 'noticeboard' ? 'Bacheca' : 'Leggi' });
       }
     });
 
@@ -6337,7 +6850,7 @@ button:disabled { opacity: .4; }
     return findFreeSpot(z, rng);
   }
 
-  CV.World = { T, generate, solidAt, blocked, moveWithCollision, findFreeSpot, entryPoint, idx, inside, TI };
+  CV.World = { T, generate, rollSiteMods, solidAt, blocked, moveWithCollision, findFreeSpot, entryPoint, idx, inside, TI };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 
@@ -6377,6 +6890,19 @@ button:disabled { opacity: .4; }
     if (v === true) return true;
     return v > Date.now() / 1000;
   }
+  E.isDead = isDead;   /* riusata da main.js per leggere l'obiettivo dei siti */
+
+  /* Somma i `mods` di uno o più affissi (D.enemyAffixes) in un solo oggetto.
+     Un'élite può averne 1-3: le chiavi non si accumulano fra loro (nessun
+     affisso condivide un campo con un altro), quindi un merge semplice basta. */
+  function mergeAffixMods(keys) {
+    const out = {};
+    for (const k of (keys || [])) {
+      const def = D.enemyAffixes && D.enemyAffixes[k];
+      if (def) Object.assign(out, def.mods);
+    }
+    return out;
+  }
 
   /* ================= GIOCATORE ================= */
   E.makePlayer = function (p, x, y) {
@@ -6403,13 +6929,24 @@ button:disabled { opacity: .4; }
     if (!def) return null;
     opts = opts || {};
     const hpMult = opts.hpMult || 1;
+    /* Affissi (D.enemyAffixes, gamedata.js): scelti per cambiare il modo
+       di combattere (velocità/telegrafo, vampirismo, esplosione alla
+       morte, offuscamento, danno da contatto, resistenza allo stordimento)
+       non solo i numeri. `mods` viene poi letto ovunque nel file. */
+    const affixKeys = opts.affixes || [];
+    const mods = mergeAffixMods(affixKeys);
     const maxHp = Math.round(def.hp * hpMult * (1 + (opts.levelScale || 0)));
+    const affixNames = affixKeys.map(k => D.enemyAffixes[k] && D.enemyAffixes[k].name).filter(Boolean);
+    const name = opts.name || (affixNames.length ? (def.name + ' ' + affixNames.join(' ')) : def.name);
     return {
       kind: 'enemy', defId: defId, def: def, key: opts.key || null,
-      name: opts.name || def.name,
+      name: name,
       x: x, y: y, radius: def.radius || 8,
       hp: maxHp, maxHp: maxHp,
       dmgMult: (opts.dmgMult || 1) * (1 + (opts.levelScale || 0) * 0.6),
+      speed: def.speed * (mods.speedMult || 1),
+      affixKeys: affixKeys, affixMods: mods,
+      affixAura: affixKeys.length ? D.enemyAffixes[affixKeys[0]].aura : null,
       face: 0, animT: 0, state: 'idle', stateT: 0,
       homeX: x, homeY: y, targetX: x, targetY: y,
       wanderT: 0, flash: 0, knockX: 0, knockY: 0,
@@ -6417,16 +6954,19 @@ button:disabled { opacity: .4; }
       sightMult: opts.sightMult || 1,
       lunge: 0, phase: 0, special: 0, dead: false, deadT: 0,
       drop: opts.drop || null, boostLoot: !!opts.boostLoot, boss: !!opts.boss,
-      elite: !!opts.name
+      elite: !!opts.name || affixKeys.length > 0
     };
   };
 
-  /* Popola una zona rispettando ciò che è già stato ucciso. */
-  E.spawnZone = function (z, worldState, playerLevel, safeArea) {
+  /* Popola una zona rispettando ciò che è già stato ucciso.
+     `endgame` (impostato quando p.flags.endgame è vero, dopo Vaelrik) alza
+     la quota di élite fra i nemici dei siti e il loro numero di affissi. */
+  E.spawnZone = function (z, worldState, playerLevel, safeArea, endgame) {
     const out = [];
     const rng = new CV.Rng(z.def.seed + 17);
     const killed = (worldState.killed = worldState.killed || {});
-    const levelScale = Math.max(0, (playerLevel - 1) * 0.06);
+    const siteCycles = worldState.siteCycle || {};
+    const levelScale = Math.max(0, (playerLevel - 1) * 0.06) + (endgame ? 0.25 : 0);
 
     (z.namedDefs || []).forEach((n, i) => {
       const key = z.id + ':named' + i;
@@ -6455,12 +6995,34 @@ button:disabled { opacity: .4; }
     });
 
     /* Nemici piazzati dai siti (composizioni, non posizioni a caso):
-       vedi W.placeSites. Gia in posizione, gia con il ruolo risolto. */
+       vedi W.placeSites. Gia in posizione, gia con il ruolo risolto.
+       Una quota di loro diventa élite: affissi + vita maggiorata + bottino
+       potenziato (D.enemyAffixes, systems.js Loot.fromEnemy). */
+    const eliteChance = endgame ? 0.42 : 0.16;
     (z.siteSpawns || []).forEach((s) => {
       if (isDead(killed, s.key)) return;
+      const site = z.sites[s.siteIndex];
+      const cycle = site && site.cycle != null
+        ? site.cycle
+        : (site ? Math.max(0, siteCycles[site.prefix] | 0) : 0);
+      const rollRng = cycle === 0 ? rng : new CV.Rng(Math.floor(
+        CV.noise.hash2(s.siteIndex, s.spawnIndex, z.def.seed + Math.imul(cycle, 7919)) * 4294967296
+      ));
+      const chance = Math.min(1, eliteChance + (site ? site.eliteBiasAdd || 0 : 0));
+      let hpMult = s.hpMult || 1, affixes = [], boostLoot = false;
+      if (rollRng.next() < chance) {
+        const n = endgame ? (rollRng.chance(0.4) ? 3 : (rollRng.chance(0.5) ? 2 : 1)) : (rollRng.chance(0.25) ? 2 : 1);
+        const pool = D.enemyAffixOrder.slice();
+        for (let i = 0; i < n && pool.length; i++) {
+          affixes.push(pool.splice(Math.floor(rollRng.next() * pool.length), 1)[0]);
+        }
+        hpMult *= 1.5 + affixes.length * 0.25;
+        boostLoot = true;
+      }
       const e = E.makeEnemy(s.id, s.x, s.y, {
-        key: s.key, hpMult: s.hpMult, dmgMult: s.dmgMult,
-        sightMult: s.sightMult, levelScale: levelScale
+        key: s.key, hpMult: hpMult, dmgMult: s.dmgMult,
+        sightMult: s.sightMult, levelScale: levelScale,
+        affixes: affixes, boostLoot: boostLoot
       });
       if (e) out.push(e);
     });
@@ -6470,7 +7032,7 @@ button:disabled { opacity: .4; }
   /* Strumento di debug: libera dalla mappa `killed` le chiavi dello scope
      richiesto e ripopola la zona da capo. 'epic' = i named/boss (z.namedDefs),
      'common' = densità di zona + composizioni dei siti, 'all' = entrambi. */
-  E.forceRespawn = function (z, worldState, playerLevel, safeArea, scope) {
+  E.forceRespawn = function (z, worldState, playerLevel, safeArea, scope, endgame) {
     const killed = (worldState.killed = worldState.killed || {});
     if (scope === 'epic' || scope === 'all') {
       (z.namedDefs || []).forEach((n, i) => { delete killed[z.id + ':named' + i]; });
@@ -6481,7 +7043,7 @@ button:disabled { opacity: .4; }
       });
       (z.siteSpawns || []).forEach((s) => { delete killed[s.key]; });
     }
-    return E.spawnZone(z, worldState, playerLevel, safeArea);
+    return E.spawnZone(z, worldState, playerLevel, safeArea, endgame);
   };
 
   /* ================= PROIETTILI ================= */
@@ -6532,7 +7094,7 @@ button:disabled { opacity: .4; }
     const p = G.p;
     let dmg = amount;
     if (p.perks.execute && e.hp / e.maxHp < 0.25) dmg *= 1.6;
-    const armor = (e.def.armor || 0) * (opts.ignoreArmor ? 0 : 1);
+    const armor = ((e.def.armor || 0) + (e.affixMods.armorBonus || 0)) * (opts.ignoreArmor ? 0 : 1);
     dmg = Math.max(1, dmg - armor * 0.55);
     dmg = Math.round(dmg * 10) / 10;
 
@@ -6550,7 +7112,7 @@ button:disabled { opacity: .4; }
       e.knockX += Math.cos(opts.knockDir) * opts.knock;
       e.knockY += Math.sin(opts.knockDir) * opts.knock;
     }
-    if (opts.stagger) e.stagger = Math.max(e.stagger, opts.stagger);
+    if (opts.stagger) e.stagger = Math.max(e.stagger, opts.stagger * (1 - (e.affixMods.staggerRes || 0)));
     if (opts.bleed) e.bleed = Math.max(e.bleed, opts.bleed);
 
     G.floats.push(E.makeFloat(e.x, e.y - e.radius - 6, Math.round(dmg) + (opts.crit ? '!' : ''),
@@ -6581,6 +7143,21 @@ button:disabled { opacity: .4; }
     const p = G.p;
     p.kills++;
 
+    /* Affisso deflagrante: esplode alla morte. Danneggia gli altri nemici
+       (E.splash, riusato) e il giocatore se è rimasto a distanza ravvicinata
+       per finire il colpo — è la ragione per allontanarsi dopo l'uccisione. */
+    if (e.affixMods && e.affixMods.deathBurst) {
+      const b = e.affixMods.deathBurst;
+      E.splash(G, e.x, e.y, b.radius, b.dmg, e);
+      if (!G.pe.dead && M.dist(e.x, e.y, G.pe.x, G.pe.y) < b.radius + G.pe.radius) {
+        E.hurtPlayer(G, b.dmg, e.x, e.y, { knock: 90, unblockable: true });
+      }
+      for (let i = 0; i < 16; i++)
+        G.particles.push(E.makeParticle(e.x, e.y, i % 2 ? '#f06c3a' : '#ffd166', { speed: 140, life: 0.5, size: 3 }));
+      G.shake(7, 0.22);
+      CV.Audio.play('fire');
+    }
+
     for (let i = 0; i < 18; i++)
       G.particles.push(E.makeParticle(e.x, e.y, i % 2 ? '#6b6577' : '#a03030', { speed: 110, life: 0.75, size: 2 }));
     /* Il segno che resta dove è caduto */
@@ -6610,6 +7187,7 @@ button:disabled { opacity: .4; }
 
     const evs2 = [];
     CV.Quests.onKill(p, e.defId, evs2);
+    CV.Contracts.onKill(p, e.defId, e.elite, p.zone, evs2);
     G.pushEvents(evs2);
     G.floats.push(E.makeFloat(e.x, e.y - 18, '+' + (e.def.xp * (e.elite ? 2 : 1)) + ' PE', '#c9a6ff'));
   };
@@ -6682,6 +7260,15 @@ button:disabled { opacity: .4; }
     pe.knockX += Math.cos(dir) * (opts.knock || 90);
     pe.knockY += Math.sin(dir) * (opts.knock || 90);
     if (pe.state === 'attack') { pe.state = 'idle'; pe.stateT = 0; }
+
+    /* Affisso vampirico: l'attaccante si cura di una quota del danno
+       inflitto. Non incassare per comodità: rimane un costo diretto. */
+    if (opts.source && opts.source.affixMods && opts.source.affixMods.lifesteal) {
+      const src = opts.source;
+      const heal = dmg * src.affixMods.lifesteal;
+      src.hp = Math.min(src.maxHp, src.hp + heal);
+      G.floats.push(E.makeFloat(src.x, src.y - src.radius - 10, '+' + Math.round(heal), '#7cc46a'));
+    }
 
     G.shake(5, 0.16);
     G.floats.push(E.makeFloat(pe.x, pe.y - 16, '-' + Math.round(dmg), '#ff6b6b'));
@@ -6774,6 +7361,13 @@ button:disabled { opacity: .4; }
     if (e.hitT > 0) e.hitT -= dt;
     if (e.stagger > 0) { e.stagger -= dt; }
 
+    /* Affisso cinereo: fumo ambientale attorno al nemico. Puramente
+       cosmetico qui; render.js abbassa anche la leggibilità del suo
+       telegrafo, che è dove l'affisso pesa davvero sul combattimento. */
+    if (e.affixMods.ashCloud && Math.random() < dt * 2.5) {
+      G.particles.push(E.makeParticle(e.x, e.y, '#6b6577', { speed: 14, life: 1.3, gravity: -4, size: 3 }));
+    }
+
     /* Contraccolpo */
     if (Math.abs(e.knockX) > 1 || Math.abs(e.knockY) > 1) {
       W.moveWithCollision(G.zone, e, e.knockX * dt, e.knockY * dt);
@@ -6807,7 +7401,7 @@ button:disabled { opacity: .4; }
       const d2 = M.dist(e.x, e.y, e.targetX, e.targetY);
       if (d2 > 4) {
         const a = Math.atan2(e.targetY - e.y, e.targetX - e.x);
-        const sp = def.speed * 0.4 * dt;
+        const sp = e.speed * 0.4 * dt;
         W.moveWithCollision(G.zone, e, Math.cos(a) * sp, Math.sin(a) * sp);
         e.face = M.facingFromVec(Math.cos(a), Math.sin(a));
         e.moving = true;
@@ -6834,7 +7428,7 @@ button:disabled { opacity: .4; }
           if (dist <= def.attackRange + e.radius) E.enterTelegraph(G, e, dist);
         }
         if (want !== 0) {
-          const sp = def.speed * dt * want;
+          const sp = e.speed * dt * want;
           /* Piccolo scarto laterale: evita che il branco si sovrapponga in fila */
           const wob = Math.sin(e.animT * 3 + e.x) * 0.25;
           const a = toPlayer + wob * (ai === 'charger' ? 0.5 : 1);
@@ -6855,13 +7449,15 @@ button:disabled { opacity: .4; }
 
       case 'telegraph': {
         e.moving = false;
-        /* I ranged possono ancora ruotare verso il bersaglio */
-        if (e.stateT >= def.telegraph) {
+        /* I ranged possono ancora ruotare verso il bersaglio.
+           telegraphMult (affisso veloce) accorcia la finestra di reazione. */
+        const tgMult = e.affixMods.telegraphMult || 1;
+        if (e.stateT >= def.telegraph * tgMult) {
           e.state = 'attack'; e.stateT = 0;
           e.attackDir = toPlayer;
           if (def.ai === 'charger') e.lunge = 0.22;
           if (def.ai === 'ranged') {
-            const dmg = def.dmg * e.dmgMult;
+            const dmg = def.dmg * e.dmgMult + (e.affixMods.touchFire || 0);
             const proj = E.makeProjectile(def.projectile || 'arrow', e.x, e.y, toPlayer, dmg, false,
               { aoe: def.projectile === 'fireball' ? 22 : 0 });
             G.projectiles.push(proj);
@@ -6876,7 +7472,7 @@ button:disabled { opacity: .4; }
       case 'attack': {
         if (def.ai === 'charger' && e.lunge > 0) {
           e.lunge -= dt;
-          const sp = def.speed * 2.4 * dt;
+          const sp = e.speed * 2.4 * dt;
           W.moveWithCollision(G.zone, e, Math.cos(e.attackDir) * sp, Math.sin(e.attackDir) * sp);
         }
         /* Finestra attiva del colpo in mischia */
@@ -6886,7 +7482,10 @@ button:disabled { opacity: .4; }
             const a = Math.atan2(pe.y - e.y, pe.x - e.x);
             if (Math.abs(M.angDelta(e.attackDir, a)) < 1.1) {
               e.didHit = true;
-              E.hurtPlayer(G, def.dmg * e.dmgMult, e.x, e.y, {
+              /* Affisso ardente: bonus di danno diretto sul contatto — la
+                 distanza smette di essere gratis contro questi nemici. */
+              const dmg = def.dmg * e.dmgMult + (e.affixMods.touchFire || 0);
+              E.hurtPlayer(G, dmg, e.x, e.y, {
                 source: e, knock: def.ai === 'charger' ? 150 : 100,
                 venom: def.venom || 0
               });
@@ -7037,12 +7636,15 @@ button:disabled { opacity: .4; }
   const H = {
     zoneBanner: 0, zoneName: '', zoneSub: '',
     bossRef: null, bossT: 0,
-    tipText: '', tipT: 0
+    tipText: '', tipT: 0,
+    keyHintsT: 0,
+    site: null            /* { name, done, total } quando si è dentro un sito attivo */
   };
 
   function showZone(name, sub) { H.zoneName = name; H.zoneSub = sub || ''; H.zoneBanner = 3.2; }
   function showTip(text) { H.tipText = text; H.tipT = 4.5; }
   function setBoss(e) { H.bossRef = e; H.bossT = e ? 4 : 0; }
+  function setSite(obj) { H.site = obj; }
 
   /* ---------------- Primitive di disegno ---------------- */
   function roundRect(ctx, x, y, w, h, r) {
@@ -7056,17 +7658,29 @@ button:disabled { opacity: .4; }
   }
 
   function bar(ctx, x, y, w, h, frac, color, bg, label) {
+    /* Ombra morbida sotto il pannello: lo stacca dal mondo dietro invece
+       di lasciarlo incollato allo sfondo. */
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetY = 2;
     ctx.fillStyle = 'rgba(6,4,10,0.75)';
     roundRect(ctx, x - 1, y - 1, w + 2, h + 2, 3); ctx.fill();
+    ctx.restore();
     ctx.fillStyle = bg;
     roundRect(ctx, x, y, w, h, 2); ctx.fill();
     const fw = Math.max(0, Math.min(1, frac)) * w;
     if (fw > 0) {
       ctx.fillStyle = color;
       roundRect(ctx, x, y, fw, h, 2); ctx.fill();
-      /* Riflesso in alto: dà volume alla barra */
-      ctx.fillStyle = 'rgba(255,255,255,0.16)';
-      roundRect(ctx, x, y, fw, Math.max(1, h * 0.35), 2); ctx.fill();
+      /* Riflesso verticale vero, non solo una fascia piatta in cima: dà
+         alla barra una curvatura invece di un bordo netto a metà altezza. */
+      const g = ctx.createLinearGradient(0, y, 0, y + h);
+      g.addColorStop(0, 'rgba(255,255,255,0.34)');
+      g.addColorStop(0.5, 'rgba(255,255,255,0.04)');
+      g.addColorStop(1, 'rgba(0,0,0,0.12)');
+      ctx.fillStyle = g;
+      roundRect(ctx, x, y, fw, h, 2); ctx.fill();
     }
     if (label) {
       ctx.font = 'bold 9px ui-monospace, monospace';
@@ -7230,8 +7844,8 @@ button:disabled { opacity: .4; }
     const bx = ins.left + 12, by = ins.top + 14;
     const bw = Math.min(150, W * 0.42);
     bar(ctx, bx, by, bw, 9, p.hp / p.stats.maxHp, '#c33636', 'rgba(40,16,16,0.85)');
-    bar(ctx, bx, by + 13, bw * 0.86, 6, p.sp / p.stats.maxSp, '#7cc46a', 'rgba(20,36,18,0.85)');
-    bar(ctx, bx, by + 22, bw * 0.86, 6, p.mp / p.stats.maxMp, '#6fb3ff', 'rgba(16,26,44,0.85)');
+    bar(ctx, bx, by + 13, bw, 6, p.sp / p.stats.maxSp, '#7cc46a', 'rgba(20,36,18,0.85)');
+    bar(ctx, bx, by + 22, bw, 6, p.mp / p.stats.maxMp, '#6fb3ff', 'rgba(16,26,44,0.85)');
 
     text(ctx, Math.ceil(p.hp) + '/' + p.stats.maxHp, bx + bw - 4, by + 4.5,
       { size: 9, align: 'right', color: 'rgba(255,255,255,0.7)', mono: true, outlineW: 2 });
@@ -7265,14 +7879,26 @@ button:disabled { opacity: .4; }
       }
     }
 
-    /* ---------- Obiettivo di missione ---------- */
+    /* ---------- Obiettivo di missione e di sito ----------
+       Il sito (se attivo) si impila sopra la missione invece di
+       sostituirla: sono due domande diverse ("cosa sto facendo qui
+       adesso" e "cosa sto facendo in generale") e in un accampamento
+       durante una missione servono entrambe. */
     const activeQ = currentObjective(p);
-    if (activeQ) {
+    if (activeQ || H.site) {
       const qy = Hh - ins.bottom - 18;
-      text(ctx, '❖ ' + activeQ.name, ins.left + 12, qy - 15, { size: 11, color: '#ffd166' });
-      const prog = CV.Quests.progressText(p, activeQ.id);
-      text(ctx, activeQ.text + (prog ? '  ' + prog : ''), ins.left + 12, qy,
-        { size: 10, color: 'rgba(215,210,224,0.75)' });
+      if (H.site) {
+        const sy = activeQ ? qy - 30 : qy;
+        text(ctx, '» ' + H.site.name, ins.left + 12, sy - 15, { size: 11, color: '#f06c3a' });
+        text(ctx, 'Sgombera i nemici  ' + H.site.done + ' / ' + H.site.total, ins.left + 12, sy,
+          { size: 10, color: 'rgba(215,210,224,0.75)' });
+      }
+      if (activeQ) {
+        text(ctx, '❖ ' + activeQ.name, ins.left + 12, qy - 15, { size: 11, color: '#ffd166' });
+        const prog = CV.Quests.progressText(p, activeQ.id);
+        text(ctx, activeQ.text + (prog ? '  ' + prog : ''), ins.left + 12, qy,
+          { size: 10, color: 'rgba(215,210,224,0.75)' });
+      }
     }
 
     /* ---------- Barra del boss ---------- */
@@ -7292,6 +7918,17 @@ button:disabled { opacity: .4; }
       const a = M.clamp(H.zoneBanner > 2.6 ? (3.2 - H.zoneBanner) / 0.6 : Math.min(1, H.zoneBanner / 0.8), 0, 1);
       ctx.save();
       ctx.globalAlpha = a;
+      /* Due filetti sfumati sopra e sotto il titolo: trasformano un testo
+         che galleggia in un momento, la prima impressione della zona. */
+      const ly = Hh * 0.26 - 16, lw = Math.min(220, W * 0.5);
+      for (const y of [ly, ly + 46]) {
+        const g = ctx.createLinearGradient(W / 2 - lw / 2, 0, W / 2 + lw / 2, 0);
+        g.addColorStop(0, 'rgba(255,209,102,0)');
+        g.addColorStop(0.5, 'rgba(255,209,102,0.55)');
+        g.addColorStop(1, 'rgba(255,209,102,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(W / 2 - lw / 2, y, lw, 1);
+      }
       text(ctx, H.zoneName, W / 2, Hh * 0.26, { size: 22, align: 'center', color: '#ffd166' });
       if (H.zoneSub) text(ctx, H.zoneSub.toUpperCase(), W / 2, Hh * 0.26 + 22, { size: 10, align: 'center', color: 'rgba(215,210,224,0.7)' });
       ctx.restore();
@@ -7337,7 +7974,7 @@ button:disabled { opacity: .4; }
       }
     } else {
       /* Promemoria dei tasti su PC */
-      drawKeyHints(ctx, L, G);
+      drawKeyHints(ctx, L, G, dt);
     }
 
     /* Etichetta di ciò che si può usare, sopra al personaggio */
@@ -7407,7 +8044,7 @@ button:disabled { opacity: .4; }
     ctx.restore();
   }
 
-  function drawKeyHints(ctx, L, G) {
+  function drawKeyHints(ctx, L, G, dt) {
     const x = L.w - L.insets.right - 14, y0 = L.h - L.insets.bottom - 12;
     const rows = [
       ['WASD', 'muovi'],
@@ -7418,8 +8055,26 @@ button:disabled { opacity: .4; }
       ['E', 'interagisci'],
       ['I  L  P  M', 'zaino, diario, abilità, mappa']
     ];
+    /* Dopo i primi secondi chi gioca su PC li ha già letti: si abbassa
+       l'opacità invece di lasciarli fissi alla stessa intensità per
+       tutta la partita, che li rende la cosa più visibile sullo schermo. */
+    H.keyHintsT += dt || 0;
+    const settle = M.clamp((H.keyHintsT - 5) / 2.5, 0, 1);
+    const a = 0.42 - settle * 0.22;
+
+    const w = 168, h = rows.length * 15 + 8;
+    const px = x - 138, py = y0 - (rows.length - 1) * 15 - 11;
     ctx.save();
-    ctx.globalAlpha = 0.42;
+    ctx.globalAlpha = a;
+    /* Pannello scuro sfumato: senza, il testo galleggia nudo sopra il
+       mondo di gioco ed è leggibile solo grazie al contorno. */
+    const g = ctx.createLinearGradient(0, py, 0, py + h);
+    g.addColorStop(0, 'rgba(10,8,14,0.05)');
+    g.addColorStop(0.3, 'rgba(10,8,14,0.55)');
+    g.addColorStop(1, 'rgba(10,8,14,0.55)');
+    ctx.fillStyle = g;
+    roundRect(ctx, px, py, w, h, 6);
+    ctx.fill();
     rows.forEach((r, i) => {
       const y = y0 - (rows.length - 1 - i) * 15;
       text(ctx, r[0], x - 132, y, { size: 10, color: '#ffd166', align: 'right', outlineW: 2 });
@@ -7451,7 +8106,7 @@ button:disabled { opacity: .4; }
   function dodgeCost(p) { return p.perks.nimble ? 14 : 22; }
   function castCost(p) { return Math.round((18 - p.skills.destruction.lvl * 0.06) * (p.perks.focus ? 0.7 : 1)); }
 
-  CV.Hud = { draw, showZone, showTip, setBoss, countPotions, dodgeCost, castCost, currentObjective, text, roundRect };
+  CV.Hud = { draw, showZone, showTip, setBoss, setSite, countPotions, dodgeCost, castCost, currentObjective, text, roundRect };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 
@@ -7539,9 +8194,11 @@ button:disabled { opacity: .4; }
     if (!current) return;
     switch (current) {
       case 'title': el.innerHTML = viewTitle(); break;
+      case 'titleSettings': el.innerHTML = viewTitleSettings(); break;
       case 'menu': el.innerHTML = viewMenu(); break;
       case 'dialogue': el.innerHTML = viewDialogue(); break;
       case 'shop': el.innerHTML = viewShop(); break;
+      case 'contracts': el.innerHTML = viewContracts(); break;
       case 'smith': el.innerHTML = viewSmith(); break;
       case 'alchemy': el.innerHTML = viewAlchemy(); break;
       case 'death': el.innerHTML = viewDeath(); break;
@@ -7553,16 +8210,56 @@ button:disabled { opacity: .4; }
      SCHERMATA DEL TITOLO
      ================================================================ */
   function viewTitle() {
-    const has = ctxData.hasSave;
-    return `<div class="title-screen">
+    const saves = G.listSaveSlots();
+    const occupied = saves.gameplay.filter(s => !s.empty && !s.corrupt && !s.incompatible);
+    const latest = occupied.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+    const gameplay = saves.gameplay.map(viewSaveSlot).join('');
+    const snapshots = saves.snapshots.length
+      ? `<div class="save-section-title">Snapshot debug</div>${saves.snapshots.map(viewSaveSlot).join('')}`
+      : '';
+    return `<div class="title-screen save-title-screen">
       <h1>CINDER VALE</h1>
       <div class="tagline">Sette anni di cenere</div>
-      <div class="menu">
-        ${has ? '<button class="primary" data-act="continue">Continua</button>' : ''}
-        <button class="${has ? '' : 'primary'}" data-act="newgame">${has ? 'Nuova partita' : 'Inizia'}</button>
+      <div class="save-browser">
+        ${latest ? `<button class="primary continue-latest" data-act="continue" data-slot="${latest.id}">Continua · ${esc(latest.playerName)}</button>` : ''}
+        <div class="save-section-title">Partite</div>
+        ${gameplay}
+        ${snapshots}
+      </div>
+      <div class="menu title-actions">
         <button data-act="settings">Impostazioni</button>
       </div>
       <div class="ver">v1.0 — tocca lo schermo o usa WASD</div>
+    </div>`;
+  }
+
+  function viewSaveSlot(slot) {
+    const title = slot.kind === 'debug' ? (slot.label || 'Snapshot debug') : 'Slot ' + slot.index;
+    if (slot.empty) return `<div class="save-slot empty-slot">
+      <div class="save-slot-copy"><b>${title}</b><small>Slot vuoto</small></div>
+      <button data-act="newgame" data-slot="${slot.id}">Nuova partita</button>
+    </div>`;
+    if (slot.corrupt || slot.incompatible) return `<div class="save-slot invalid-slot">
+      <div class="save-slot-copy"><b>${title}</b><small>${slot.corrupt ? 'Dati non leggibili' : 'Versione non compatibile'}</small></div>
+      <button data-act="deleteslot" data-slot="${slot.id}">Elimina</button>
+    </div>`;
+    const mins = Math.floor(slot.playtime / 60);
+    const when = slot.updatedAt ? new Date(slot.updatedAt).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    return `<div class="save-slot ${slot.kind === 'debug' ? 'debug-slot' : ''}">
+      <div class="save-slot-copy">
+        <b>${esc(title)}</b>
+        <span>${esc(slot.playerName)} · Liv ${slot.level} · ${esc(slot.zone)}</span>
+        <small>${mins} min${when ? ' · ' + esc(when) : ''}</small>
+      </div>
+      <button class="${slot.kind === 'gameplay' ? 'primary' : ''}" data-act="continue" data-slot="${slot.id}">${slot.kind === 'debug' ? 'Ripristina' : 'Carica'}</button>
+      <button class="ghost delete-slot" data-act="deleteslot" data-slot="${slot.id}">Elimina</button>
+    </div>`;
+  }
+
+  function viewTitleSettings() {
+    return `<div class="panel">
+      <div class="panel-head"><h2>Impostazioni</h2><button class="close-x" data-act="backtitle">✕</button></div>
+      <div class="panel-body">${viewSettings()}</div>
     </div>`;
   }
 
@@ -7943,34 +8640,49 @@ button:disabled { opacity: .4; }
         </div>
       </div>
 
-      <div class="sect">Partita</div>
+      ${G.p ? `<div class="sect">Partita</div>
       <div class="opt-row">
         <div class="lbl">Salvataggio automatico
-          <small>Il gioco salva a ogni cambio di zona e ogni due minuti.</small>
+          <small>${G.activeSaveKind === 'debug' ? 'Sessione snapshot protetta: il salvataggio automatico è sospeso.' : 'Il gioco salva nello slot attivo a ogni cambio di zona e ogni due minuti.'}</small>
         </div>
       </div>
       <div class="btn-row" style="margin-top:10px">
-        <button data-act="save">Salva ora</button>
+        <button data-act="save" ${G.activeSaveKind === 'debug' ? 'disabled' : ''}>Salva ora</button>
         <button data-act="title">Torna al titolo</button>
       </div>
-      <div class="btn-row" style="margin-top:8px">
+      ${G.activeSaveKind === 'gameplay' ? `<div class="btn-row" style="margin-top:8px">
         <button data-act="wipe" style="border-color:var(--blood);color:var(--blood)">Cancella salvataggio</button>
-      </div>
-      <div class="hint">Uccisioni: ${G.p.kills} · Morti: ${G.p.deaths} · Tempo: ${Math.floor(G.p.playtime / 60)} min</div>
+      </div>` : ''}
+      <div class="hint">${G.activeSaveKind === 'gameplay' ? 'Slot attivo: ' + G.activeSaveId.slice(-1) : 'Origine: snapshot protetto'} · Uccisioni: ${G.p.kills} · Morti: ${G.p.deaths} · Tempo: ${Math.floor(G.p.playtime / 60)} min</div>
 
       <div class="sect">Debug</div>
       <div class="seg" style="margin-bottom:10px">
         ${debugSections.map(x => `<button class="${debugTab === x[0] ? 'on' : ''}" data-act="debugtab" data-t="${x[0]}">${x[1]}</button>`).join('')}
       </div>
-      ${viewDebugPanel()}`;
+      ${viewDebugPanel()}` : ''}`;
   }
 
   /* ---------------- Debug ---------------- */
-  const debugSections = [['respawn', 'Respawn']];
+  const debugSections = [['respawn', 'Respawn'], ['saves', 'Snapshot']];
 
   function viewDebugPanel() {
     if (debugTab === 'respawn') return viewDebugRespawn();
+    if (debugTab === 'saves') return viewDebugSaves();
     return '';
+  }
+
+  function viewDebugSaves() {
+    const snapshots = G.listSaveSlots().snapshots;
+    return `<div class="opt-row">
+      <div class="lbl">Snapshot protetto
+        <small>Crea una copia che gli autosalvataggi non possono sovrascrivere. Puoi ripristinarla dalla schermata iniziale.</small>
+      </div>
+    </div>
+    <div class="snapshot-create">
+      <input type="text" maxlength="48" data-snapshot-label placeholder="Es. Prima del boss">
+      <button data-act="debugsnapshot">Crea snapshot</button>
+    </div>
+    <div class="hint">Snapshot disponibili: ${snapshots.length} / 10</div>`;
   }
 
   const DEBUG_TIMERS = [
@@ -8082,6 +8794,45 @@ button:disabled { opacity: .4; }
         <div class="tab${shopTab === 'sell' ? ' active' : ''}" data-act="shoptab" data-t="sell">Vendi</div>
       </div>
       <div class="panel-body"><div class="list">${rows}</div></div>
+    </div>`;
+  }
+
+  /* ================================================================
+     BACHECA DEI CONTRATTI
+     ================================================================ */
+  function viewContracts() {
+    const p = G.p;
+    const rows = (p.contracts || []).map(c => {
+      const st = CV.Contracts.state(p, c);
+      const ready = st === 'ready';
+      const prog = CV.Contracts.progressText(p, c);
+      const rw = c.reward || {};
+      const rewardTxt = [
+        rw.gold ? rw.gold[0] + '-' + rw.gold[1] + ' ⬤' : '',
+        rw.xp ? rw.xp + ' PE' : '',
+        rw.tier ? 'equipaggiamento' : ''
+      ].filter(Boolean).join(' · ');
+      return `<div class="detail" style="border-left:3px solid ${ready ? 'var(--gold)' : 'var(--ash-4)'}">
+        <h3 style="color:${ready ? 'var(--gold)' : 'var(--text)'}">${esc(c.title)}</h3>
+        <div class="flavor">${esc(c.desc)}</div>
+        <div class="stat-line"><span>Avanzamento</span><span class="v">${esc(prog)}</span></div>
+        <div class="stat-line"><span>Ricompensa</span><span class="v">${esc(rewardTxt)}</span></div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="${ready ? 'primary' : ''}" ${ready ? '' : 'disabled'} data-act="contractclaim" data-cid="${c.cid}">Riscuoti</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="panel">
+      <div class="panel-head">
+        <h2>Bacheca dei Contratti</h2>
+        <span style="font-size:12px;color:var(--gold);font-family:var(--mono)">${p.gold} ⬤</span>
+        <button class="close-x" data-act="close">✕</button>
+      </div>
+      <div class="panel-body">
+        <div class="hint">Tre contratti alla volta. Riscuoterne uno ne genera subito un altro: è pensata per essere ripetuta.</div>
+        <div class="list">${rows || '<div class="empty">Nessun contratto disponibile.</div>'}</div>
+      </div>
     </div>`;
   }
 
@@ -8327,7 +9078,10 @@ button:disabled { opacity: .4; }
         render();
         break;
       }
-      case 'save': G.save(); toast('Partita salvata', 'good'); break;
+      case 'save':
+        if (G.save()) toast('Partita salvata', 'good');
+        else toast('Salvataggio non disponibile', 'bad');
+        break;
       case 'title': G.toTitle(); break;
       case 'wipe': {
         if (t.dataset.confirm === '1') { G.wipeSave(); }
@@ -8338,6 +9092,13 @@ button:disabled { opacity: .4; }
 
       /* Debug */
       case 'debugtab': debugTab = t.dataset.t; render(); break;
+      case 'debugsnapshot': {
+        const input = el.querySelector('[data-snapshot-label]');
+        const result = G.createDebugSnapshot(input ? input.value : '');
+        if (result.ok) { toast('Snapshot creato', 'gold'); render(); }
+        else toast(result.why, 'bad');
+        break;
+      }
       case 'dbgforcerespawn': {
         const labels = { all: 'Tutto (esclusi boss)', common: 'Nemici comuni', chests: 'Forzieri', shrines: 'Santuari', epic: 'Epici/Boss' };
         G.debugForceRespawn(t.dataset.scope);
@@ -8375,6 +9136,23 @@ button:disabled { opacity: .4; }
         P.removeUid(G.p, it.uid, 1);
         P.recalc(G.p);
         CV.Audio.play('coin');
+        render();
+        break;
+      }
+
+      /* Bacheca dei contratti */
+      case 'contractclaim': {
+        const evs = [];
+        const res = CV.Contracts.claim(G.p, t.dataset.cid, G.rng, G.p.level, !!G.p.flags.endgame, evs);
+        G.pushEvents(evs);
+        if (res.ok) {
+          CV.Audio.play('quest');
+          toast('Contratto riscosso' + (res.contract.reward.xp ? ' (+' + res.contract.reward.xp + ' PE)' : ''), 'gold');
+          if (res.item) toast('Ricevuto: ' + P.resolve(res.item).name, 'good');
+        } else {
+          CV.Audio.play('error');
+          toast(res.why || 'Non ancora pronto.', 'bad');
+        }
         render();
         break;
       }
@@ -8427,9 +9205,20 @@ button:disabled { opacity: .4; }
       }
 
       /* Titolo */
-      case 'newgame': G.newGame(); break;
-      case 'continue': G.continueGame(); break;
-      case 'settings': open('menu', { tab: 'settings' }); break;
+      case 'newgame': G.newGame(t.dataset.slot); break;
+      case 'continue': G.continueGame(t.dataset.slot); break;
+      case 'deleteslot': {
+        if (t.dataset.confirm === '1') {
+          if (G.deleteSaveSlot(t.dataset.slot)) { toast('Salvataggio eliminato', 'bad'); render(); }
+          else toast('Impossibile eliminare il salvataggio', 'bad');
+        } else {
+          t.dataset.confirm = '1';
+          t.textContent = 'Conferma';
+        }
+        break;
+      }
+      case 'settings': open('titleSettings', {}); break;
+      case 'backtitle': open('title', {}); break;
     }
   }
 
@@ -8493,8 +9282,9 @@ button:disabled { opacity: .4; }
     openSmith: () => { smithTab = 'forge'; open('smith', {}); },
     openAlchemy: () => { alchPick = []; open('alchemy', {}); },
     openShop: (id) => { shopTab = 'buy'; open('shop', { shop: id }); },
+    openContracts: () => { CV.Contracts.ensure(G.p, G.rng, G.p.level, !!G.p.flags.endgame); open('contracts', {}); },
     openMenu: (tab) => { open('menu', { tab: tab || 'inv' }); },
-    openTitle: (hasSave) => open('title', { hasSave: hasSave }),
+    openTitle: () => open('title', {}),
     openDeath: () => open('death', {}),
     openVictory: () => open('victory', {})
   };
@@ -8516,7 +9306,10 @@ button:disabled { opacity: .4; }
   const E = CV.Ent;
   const M = CV.M;
 
-  const SAVE_KEY = 'cindervale.save.v1';
+  const LEGACY_SAVE_KEY = 'cindervale.save.v1';
+  const SAVE_PREFIX = 'cindervale.save.v1.slot.';
+  const GAMEPLAY_SLOTS = ['gameplay-1', 'gameplay-2', 'gameplay-3'];
+  const MAX_DEBUG_SNAPSHOTS = 10;
   const SET_KEY = 'cindervale.settings.v1';
   const ENTRY_SAFE_RADIUS = 280;
   const ENTRY_ORIENT_SECONDS = 2;
@@ -8534,6 +9327,7 @@ button:disabled { opacity: .4; }
     interactTarget: null, interactLabel: '',
     autosaveT: 0, tipT: 12,
     fpsAcc: 0, fpsFrames: 0, lastFps: 60, lowFpsRun: 0, autoQuality: null,
+    activeSaveId: null, activeSaveKind: null, debugSourceId: null,
     settings: {
       scheme: 'auto', volume: 0.6, music: true, blockMode: 'auto', quality: 'auto',
       debug: { enemyRespawnSeconds: 300, chestRespawnSeconds: 600, shrineRespawnSeconds: 600 }
@@ -8553,13 +9347,21 @@ button:disabled { opacity: .4; }
     applyQuality();
     CV.Input.setScheme(G.settings.scheme);
 
-    CV.UI.openTitle(hasSave());
+    migrateLegacySave();
+    CV.UI.openTitle();
     G.running = true;
     requestAnimationFrame(frame);
   }
 
   /* ================= PARTITA ================= */
-  function newGame() {
+  function newGame(slotId) {
+    const id = GAMEPLAY_SLOTS.indexOf(slotId) >= 0 ? slotId : firstAvailableGameplaySlot();
+    if (!id) { CV.UI.toast('Nessuno slot disponibile', 'bad'); return; }
+    G.activeSaveId = id;
+    G.activeSaveKind = 'gameplay';
+    G.debugSourceId = null;
+    G.pe = null;
+    G.autosaveT = 0;
     G.p = P.create('Viandante');
     G.worldAll = { zones: {} };
     enterZone(D.startZone, null, true);
@@ -8570,11 +9372,17 @@ button:disabled { opacity: .4; }
     save();
   }
 
-  function continueGame() {
-    const raw = readSave();
-    if (!raw) { newGame(); return; }
-    const data = CV.Save.deserialize(raw);
-    if (!data) { CV.UI.toast('Salvataggio non compatibile', 'bad'); newGame(); return; }
+  function continueGame(slotId) {
+    const record = readSaveSlot(slotId);
+    if (!record || record.corrupt) { CV.UI.toast('Salvataggio non leggibile', 'bad'); return; }
+    const data = CV.Save.deserialize(record.data);
+    if (!data) { CV.UI.toast('Salvataggio non compatibile', 'bad'); return; }
+    const isGameplay = record.meta.kind === 'gameplay';
+    G.activeSaveId = isGameplay ? record.meta.id : null;
+    G.activeSaveKind = record.meta.kind;
+    G.debugSourceId = isGameplay ? null : record.meta.id;
+    G.pe = null;
+    G.autosaveT = 0;
     G.p = data.player;
     G.worldAll = data.world && data.world.zones ? data.world : { zones: {} };
     enterZone(G.p.zone || D.startZone, null, true, { x: G.p.x, y: G.p.y });
@@ -8586,24 +9394,28 @@ button:disabled { opacity: .4; }
     save();
     G.paused = true;
     CV.Audio.stopMusic();
-    CV.UI.openTitle(hasSave());
+    CV.UI.openTitle();
   }
 
   /* ================= ZONE ================= */
   function enterZone(zoneId, fromZone, hard, atPos) {
     const z = W.generate(zoneId);
     if (!z) return;
+
+    /* Stato mutevole persistente della zona */
+    G.worldAll.zones[zoneId] = G.worldAll.zones[zoneId] || { killed: {}, chests: {}, nodes: {}, shrines: {} };
+    G.world = G.worldAll.zones[zoneId];
+    if (!G.world.shrines) G.world.shrines = {};
+    if (!G.world.siteCycle) G.world.siteCycle = {};
+    if (!G.world.siteCycleReady) G.world.siteCycleReady = {};
+    W.rollSiteMods(z, G.world);
+
     G.zone = z;
     CV.Render.onZone(z);
 
     /* Il punto reale d'ingresso serve anche a tenere liberi gli immediati
        dintorni: vale sia per i varchi sia per la posizione di un salvataggio. */
     const pos = atPos || W.entryPoint(z, fromZone);
-
-    /* Stato mutevole persistente della zona */
-    G.worldAll.zones[zoneId] = G.worldAll.zones[zoneId] || { killed: {}, chests: {}, nodes: {}, shrines: {} };
-    G.world = G.worldAll.zones[zoneId];
-    if (!G.world.shrines) G.world.shrines = {};
 
     /* Applica ciò che è già successo qui. Forzieri e santuari, come i nemici
        comuni, restano "usati" solo fino a un timestamp: passato quello,
@@ -8618,7 +9430,7 @@ button:disabled { opacity: .4; }
 
     G.enemies = z.def.safe ? [] : E.spawnZone(z, G.world, G.p.level, {
       x: pos.x, y: pos.y, radius: ENTRY_SAFE_RADIUS
-    });
+    }, !!G.p.flags.endgame);
     G.projectiles = []; G.particles = []; G.floats = []; G.drops = []; G.decals = [];
     G.freezeT = 0;
     G.entryGraceT = z.def.safe ? 0 : ENTRY_ORIENT_SECONDS;
@@ -8727,6 +9539,7 @@ button:disabled { opacity: .4; }
       updatePlayer(dt);
       updateInteractions();
       updateAmbushes();
+      updateSiteObjective();
     } else {
       pe.stateT += dt;
       if (pe.stateT > 1.8 && !CV.UI.isOpen()) CV.UI.openDeath();
@@ -9106,6 +9919,70 @@ button:disabled { opacity: .4; }
     }
   }
 
+  /* Traccia il sito più vicino con nemici propri (z.sites[i].keys, vedi
+     world.js) e mostra "sgombera (n/tot)" mentre il giocatore ci sta
+     dentro. La ricompensa scatta al passaggio da "resta almeno un nemico"
+     a "nessuno vivo", una volta per visita: lasciare la zona e tornare a
+     respawn scaduto permette di sgomberarlo di nuovo. */
+  function updateSiteObjective() {
+    const pe = G.pe;
+    let nearest = null, nearestD = Infinity;
+    for (const s of (G.zone.sites || [])) {
+      if (!s.keys || !s.keys.length) continue;
+      const cx = s.tx * W.T + 8, cy = s.ty * W.T + 8;
+      const d = M.dist(pe.x, pe.y, cx, cy);
+      if (d > (s.r + 2) * W.T) continue;
+      if (d < nearestD) { nearestD = d; nearest = s; }
+    }
+    if (!nearest) { CV.Hud.setSite(null); G.activeSitePrefix = null; return; }
+
+    const remaining = nearest.keys.filter(k => !E.isDead(G.world.killed, k)).length;
+    const total = nearest.keys.length;
+    const isNewTrack = G.activeSitePrefix !== nearest.prefix;
+    if (isNewTrack) { G.activeSitePrefix = nearest.prefix; G.siteRemainingSeen = remaining; }
+
+    if (remaining === 0) {
+      if (!isNewTrack && G.siteRemainingSeen > 0) grantSiteReward(nearest);
+      G.siteRemainingSeen = 0;
+      CV.Hud.setSite(null);
+      return;
+    }
+    G.siteRemainingSeen = remaining;
+    CV.Hud.setSite({ name: nearest.name, done: total - remaining, total: total });
+  }
+
+  function grantSiteReward(site) {
+    const def = D.sites[site.id];
+    const rw = def && def.clearReward;
+    G.world.siteCycle = G.world.siteCycle || {};
+    G.world.siteCycleReady = G.world.siteCycleReady || {};
+    G.world.siteCycle[site.prefix] = (G.world.siteCycle[site.prefix] || 0) + 1;
+    G.world.siteCycleReady[site.prefix] = Date.now() / 1000 + debugSeconds('enemyRespawnSeconds', 300);
+    if (!rw) { CV.UI.toast(site.name + ' sgomberato.', 'good'); return; }
+    const p = G.p, pe = G.pe;
+    const evs = [];
+    const bonus = site.rewardBonus || {};
+    if (rw.xp) P.gainXp(p, rw.xp, evs);
+    if (rw.gold) {
+      const g = Math.round(G.rng.int(rw.gold[0], rw.gold[1]) * (bonus.goldMult || 1));
+      p.gold += g;
+      G.floats.push(E.makeFloat(pe.x, pe.y - 24, '+' + g + ' oro', '#ffd166'));
+    }
+    if (rw.tier) {
+      const tier = Math.min(4, rw.tier + (bonus.tier || 0) + (p.flags.endgame ? 1 : 0));
+      const item = CV.Loot.makeGear(G.rng, tier, 0.15);
+      if (item) {
+        P.addItem(p, item);
+        G.floats.push(E.makeFloat(pe.x, pe.y - 40, P.resolve(item).name, '#7cc46a'));
+      }
+    }
+    P.recalc(p);
+    CV.Contracts.onSiteCleared(p, G.zone.id, evs);
+    pushEvents(evs);
+    CV.Audio.play('quest');
+    CV.UI.toast(site.name + ' sgomberato! Ricompensa raccolta.', 'gold');
+  }
+
   /* ---------------- Interazioni ---------------- */
   function updateInteractions() {
     const pe = G.pe;
@@ -9142,7 +10019,10 @@ button:disabled { opacity: .4; }
         c.open = true;
         G.world.chests[c.key] = Date.now() / 1000 + debugSeconds('chestRespawnSeconds', CHEST_RESPAWN_SECONDS);
         CV.Audio.play('chest');
-        const items = CV.Loot.fromChest(c.table, G.rng);
+        /* Dopo Vaelrik i forzieri più ricchi passano alla tabella 'hoard':
+           stesso forziere di sempre, bottino da fine partita. */
+        const table = (p.flags.endgame && c.table === 'rich') ? 'hoard' : c.table;
+        const items = CV.Loot.fromChest(table, G.rng);
         for (const it of items) {
           const a = G.rng.next() * Math.PI * 2;
           G.drops.push({ item: it, x: c.x + Math.cos(a) * 12, y: c.y + Math.sin(a) * 12 + 6, t: 0, vy: -40 });
@@ -9167,6 +10047,7 @@ button:disabled { opacity: .4; }
       case 'forge': CV.UI.openSmith(); break;
       case 'cauldron': CV.UI.openAlchemy(); break;
       case 'sign': CV.UI.toast(t.text || '...'); break;
+      case 'noticeboard': CV.UI.openContracts(); break;
       case 'shrine': {
         const sh = t.ref;
         if (sh.used) { CV.UI.toast('Il santuario è già stato onorato.'); break; }
@@ -9236,7 +10117,10 @@ button:disabled { opacity: .4; }
   function dropItemToGround(it) {
     const pe = G.pe;
     P.removeUid(G.p, it.uid, it.qty);
-    G.drops.push({ item: it, x: pe.x + 10, y: pe.y + 8, t: -1.2, vy: 0 });
+    /* Deve atterrare oltre il raggio di auto-raccolta (16px in updateDrops),
+       altrimenti il pg se lo riprende da solo appena scade il ritardo. */
+    const a = E.faceAngle(pe.face);
+    G.drops.push({ item: it, x: pe.x + Math.cos(a) * 26, y: pe.y + Math.sin(a) * 26 + 8, t: -1.2, vy: 0 });
     P.recalc(G.p);
   }
 
@@ -9257,12 +10141,22 @@ button:disabled { opacity: .4; }
           CV.Audio.play('quest');
           const rw = e.reward || {};
           CV.UI.toast('Missione completata: ' + D.quests[e.quest].name + (rw.gold ? ' (+' + rw.gold + ' oro)' : ''), 'gold');
-          if (e.quest === 'q_main4') setTimeout(() => CV.UI.openVictory(), 900);
+          if (e.quest === 'q_main4') {
+            /* La valle dopo Vaelrik: più élite, forzieri 'hoard', contratti
+               di fascia superiore. Riusa gli stessi sistemi, solo alzati. */
+            G.p.flags.endgame = true;
+            setTimeout(() => CV.UI.openVictory(), 900);
+          }
         } else if (e.event === 'stage') {
           CV.Audio.play('ui');
           CV.UI.toast('Obiettivo aggiornato');
         }
         refreshNpcMarkers();
+      } else if (e.type === 'contract') {
+        if (e.event === 'progress') {
+          CV.Audio.play('ui');
+          CV.UI.toast('Contratto pronto per la consegna: ' + e.contract.title, 'gold');
+        }
       }
     }
     refreshNpcMarkers();
@@ -9295,28 +10189,128 @@ button:disabled { opacity: .4; }
   }
 
   /* ---------------- Salvataggio ---------------- */
-  function hasSave() { return !!readSave(); }
+  function slotKey(id) { return SAVE_PREFIX + id; }
 
-  function readSave() {
-    try { const s = localStorage.getItem(SAVE_KEY); return s ? JSON.parse(s) : null; }
-    catch (e) { return null; }
+  function readSaveSlot(id) {
+    if (!id || !/^[a-z0-9-]+$/.test(id)) return null;
+    try {
+      const stored = localStorage.getItem(slotKey(id));
+      if (!stored) return null;
+      const record = JSON.parse(stored);
+      if (!record || !record.meta || !record.data || record.meta.id !== id) return { corrupt: true, id: id };
+      return record;
+    } catch (e) { return { corrupt: true, id: id }; }
+  }
+
+  function slotSummary(id, kind, index) {
+    const record = readSaveSlot(id);
+    if (!record) return { id: id, kind: kind, index: index, empty: true };
+    if (record.corrupt) return { id: id, kind: kind, index: index, corrupt: true };
+    const p = record.data.player || {};
+    const zone = D.zones[p.zone];
+    return {
+      id: id, kind: record.meta.kind, index: index, label: record.meta.label,
+      createdAt: record.meta.createdAt, updatedAt: record.meta.updatedAt || record.data.t,
+      playerName: p.name || 'Viandante', level: p.level || 1,
+      zone: zone ? zone.name : (p.zone || 'Zona sconosciuta'), playtime: p.playtime || 0,
+      incompatible: record.data.v !== CV.Save.VERSION
+    };
+  }
+
+  function listSaveSlots() {
+    const slots = GAMEPLAY_SLOTS.map((id, i) => slotSummary(id, 'gameplay', i + 1));
+    const debugIds = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.indexOf(SAVE_PREFIX + 'debug-') === 0) debugIds.push(key.slice(SAVE_PREFIX.length));
+      }
+    } catch (e) {}
+    const snapshots = debugIds.map(id => slotSummary(id, 'debug', 0));
+    snapshots.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    return { gameplay: slots, snapshots: snapshots };
+  }
+
+  function firstAvailableGameplaySlot() {
+    const slots = listSaveSlots().gameplay;
+    const empty = slots.find(s => s.empty);
+    return empty ? empty.id : null;
+  }
+
+  function writeSaveSlot(id, kind, label, data) {
+    const previous = readSaveSlot(id);
+    const now = Date.now();
+    const record = {
+      meta: {
+        id: id, kind: kind, label: label,
+        createdAt: previous && !previous.corrupt ? previous.meta.createdAt : now,
+        updatedAt: now
+      },
+      data: data
+    };
+    try {
+      localStorage.setItem(slotKey(id), JSON.stringify(record));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function migrateLegacySave() {
+    try {
+      const legacy = localStorage.getItem(LEGACY_SAVE_KEY);
+      if (!legacy || GAMEPLAY_SLOTS.some(id => localStorage.getItem(slotKey(id)))) return;
+      const data = JSON.parse(legacy);
+      if (!data || data.v !== CV.Save.VERSION || !data.player) return;
+      if (writeSaveSlot('gameplay-1', 'gameplay', 'Slot 1', data)) localStorage.removeItem(LEGACY_SAVE_KEY);
+    } catch (e) {}
+  }
+
+  function captureSaveData() {
+    if (!G.p) return null;
+    G.p.x = G.pe ? G.pe.x : 0;
+    G.p.y = G.pe ? G.pe.y : 0;
+    return CV.Save.serialize(G.p, G.worldAll, G.settings);
   }
 
   function save() {
-    if (!G.p) return;
+    if (!G.activeSaveId || G.activeSaveKind !== 'gameplay') return false;
+    const data = captureSaveData();
+    if (!data) return false;
+    const n = GAMEPLAY_SLOTS.indexOf(G.activeSaveId) + 1;
+    return writeSaveSlot(G.activeSaveId, 'gameplay', 'Slot ' + n, data);
+  }
+
+  function createDebugSnapshot(label) {
+    const saves = listSaveSlots();
+    if (saves.snapshots.length >= MAX_DEBUG_SNAPSHOTS) return { ok: false, why: 'Limite di 10 snapshot raggiunto' };
+    const data = captureSaveData();
+    if (!data) return { ok: false, why: 'Nessuna partita da salvare' };
+    let id = 'debug-' + Date.now();
+    while (readSaveSlot(id)) id += '-1';
+    const fallback = 'Snapshot ' + new Date().toLocaleString('it-IT');
+    const cleanLabel = String(label || '').trim().slice(0, 48) || fallback;
+    return writeSaveSlot(id, 'debug', cleanLabel, data)
+      ? { ok: true, id: id }
+      : { ok: false, why: 'Impossibile scrivere il salvataggio' };
+  }
+
+  function deleteSaveSlot(id) {
+    if (GAMEPLAY_SLOTS.indexOf(id) < 0 && !/^debug-[a-z0-9-]+$/.test(id || '')) return false;
     try {
-      G.p.x = G.pe ? G.pe.x : 0;
-      G.p.y = G.pe ? G.pe.y : 0;
-      const data = CV.Save.serialize(G.p, G.worldAll, G.settings);
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-    } catch (e) { /* spazio esaurito o modalità privata: si continua a giocare */ }
+      localStorage.removeItem(slotKey(id));
+      if (G.activeSaveId === id) { G.activeSaveId = null; G.activeSaveKind = null; }
+      if (G.debugSourceId === id) { G.debugSourceId = null; G.activeSaveKind = null; }
+      return true;
+    } catch (e) { return false; }
   }
 
   function wipeSave() {
-    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+    if (!G.activeSaveId || !deleteSaveSlot(G.activeSaveId)) {
+      CV.UI.toast('Impossibile cancellare il salvataggio', 'bad');
+      return;
+    }
     CV.UI.toast('Salvataggio cancellato', 'bad');
     G.paused = true;
-    CV.UI.openTitle(false);
+    CV.UI.openTitle();
   }
 
   function loadSettings() {
@@ -9405,6 +10399,9 @@ button:disabled { opacity: .4; }
   G.toTitle = toTitle;
   G.save = save;
   G.wipeSave = wipeSave;
+  G.listSaveSlots = listSaveSlots;
+  G.deleteSaveSlot = deleteSaveSlot;
+  G.createDebugSnapshot = createDebugSnapshot;
   G.saveSettings = saveSettings;
   G.applyAudioSettings = applyAudioSettings;
   G.refreshMusic = refreshMusic;
@@ -9429,7 +10426,7 @@ button:disabled { opacity: .4; }
     if (scope === 'common' || scope === 'epic' || scope === 'all') {
       G.enemies = E.forceRespawn(G.zone, G.world, G.p.level, {
         x: G.pe.x, y: G.pe.y, radius: ENTRY_SAFE_RADIUS
-      }, scope === 'all' ? 'common' : scope);
+      }, scope === 'all' ? 'common' : scope, !!G.p.flags.endgame);
     }
     if (scope === 'chests' || scope === 'all') {
       for (const c of G.zone.chests) { c.open = false; delete G.world.chests[c.key]; }

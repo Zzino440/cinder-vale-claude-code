@@ -12,7 +12,10 @@
   const E = CV.Ent;
   const M = CV.M;
 
-  const SAVE_KEY = 'cindervale.save.v1';
+  const LEGACY_SAVE_KEY = 'cindervale.save.v1';
+  const SAVE_PREFIX = 'cindervale.save.v1.slot.';
+  const GAMEPLAY_SLOTS = ['gameplay-1', 'gameplay-2', 'gameplay-3'];
+  const MAX_DEBUG_SNAPSHOTS = 10;
   const SET_KEY = 'cindervale.settings.v1';
   const ENTRY_SAFE_RADIUS = 280;
   const ENTRY_ORIENT_SECONDS = 2;
@@ -30,6 +33,7 @@
     interactTarget: null, interactLabel: '',
     autosaveT: 0, tipT: 12,
     fpsAcc: 0, fpsFrames: 0, lastFps: 60, lowFpsRun: 0, autoQuality: null,
+    activeSaveId: null, activeSaveKind: null, debugSourceId: null,
     settings: {
       scheme: 'auto', volume: 0.6, music: true, blockMode: 'auto', quality: 'auto',
       debug: { enemyRespawnSeconds: 300, chestRespawnSeconds: 600, shrineRespawnSeconds: 600 }
@@ -49,13 +53,21 @@
     applyQuality();
     CV.Input.setScheme(G.settings.scheme);
 
-    CV.UI.openTitle(hasSave());
+    migrateLegacySave();
+    CV.UI.openTitle();
     G.running = true;
     requestAnimationFrame(frame);
   }
 
   /* ================= PARTITA ================= */
-  function newGame() {
+  function newGame(slotId) {
+    const id = GAMEPLAY_SLOTS.indexOf(slotId) >= 0 ? slotId : firstAvailableGameplaySlot();
+    if (!id) { CV.UI.toast('Nessuno slot disponibile', 'bad'); return; }
+    G.activeSaveId = id;
+    G.activeSaveKind = 'gameplay';
+    G.debugSourceId = null;
+    G.pe = null;
+    G.autosaveT = 0;
     G.p = P.create('Viandante');
     G.worldAll = { zones: {} };
     enterZone(D.startZone, null, true);
@@ -66,11 +78,17 @@
     save();
   }
 
-  function continueGame() {
-    const raw = readSave();
-    if (!raw) { newGame(); return; }
-    const data = CV.Save.deserialize(raw);
-    if (!data) { CV.UI.toast('Salvataggio non compatibile', 'bad'); newGame(); return; }
+  function continueGame(slotId) {
+    const record = readSaveSlot(slotId);
+    if (!record || record.corrupt) { CV.UI.toast('Salvataggio non leggibile', 'bad'); return; }
+    const data = CV.Save.deserialize(record.data);
+    if (!data) { CV.UI.toast('Salvataggio non compatibile', 'bad'); return; }
+    const isGameplay = record.meta.kind === 'gameplay';
+    G.activeSaveId = isGameplay ? record.meta.id : null;
+    G.activeSaveKind = record.meta.kind;
+    G.debugSourceId = isGameplay ? null : record.meta.id;
+    G.pe = null;
+    G.autosaveT = 0;
     G.p = data.player;
     G.worldAll = data.world && data.world.zones ? data.world : { zones: {} };
     enterZone(G.p.zone || D.startZone, null, true, { x: G.p.x, y: G.p.y });
@@ -82,7 +100,7 @@
     save();
     G.paused = true;
     CV.Audio.stopMusic();
-    CV.UI.openTitle(hasSave());
+    CV.UI.openTitle();
   }
 
   /* ================= ZONE ================= */
@@ -877,28 +895,128 @@
   }
 
   /* ---------------- Salvataggio ---------------- */
-  function hasSave() { return !!readSave(); }
+  function slotKey(id) { return SAVE_PREFIX + id; }
 
-  function readSave() {
-    try { const s = localStorage.getItem(SAVE_KEY); return s ? JSON.parse(s) : null; }
-    catch (e) { return null; }
+  function readSaveSlot(id) {
+    if (!id || !/^[a-z0-9-]+$/.test(id)) return null;
+    try {
+      const stored = localStorage.getItem(slotKey(id));
+      if (!stored) return null;
+      const record = JSON.parse(stored);
+      if (!record || !record.meta || !record.data || record.meta.id !== id) return { corrupt: true, id: id };
+      return record;
+    } catch (e) { return { corrupt: true, id: id }; }
+  }
+
+  function slotSummary(id, kind, index) {
+    const record = readSaveSlot(id);
+    if (!record) return { id: id, kind: kind, index: index, empty: true };
+    if (record.corrupt) return { id: id, kind: kind, index: index, corrupt: true };
+    const p = record.data.player || {};
+    const zone = D.zones[p.zone];
+    return {
+      id: id, kind: record.meta.kind, index: index, label: record.meta.label,
+      createdAt: record.meta.createdAt, updatedAt: record.meta.updatedAt || record.data.t,
+      playerName: p.name || 'Viandante', level: p.level || 1,
+      zone: zone ? zone.name : (p.zone || 'Zona sconosciuta'), playtime: p.playtime || 0,
+      incompatible: record.data.v !== CV.Save.VERSION
+    };
+  }
+
+  function listSaveSlots() {
+    const slots = GAMEPLAY_SLOTS.map((id, i) => slotSummary(id, 'gameplay', i + 1));
+    const debugIds = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.indexOf(SAVE_PREFIX + 'debug-') === 0) debugIds.push(key.slice(SAVE_PREFIX.length));
+      }
+    } catch (e) {}
+    const snapshots = debugIds.map(id => slotSummary(id, 'debug', 0));
+    snapshots.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    return { gameplay: slots, snapshots: snapshots };
+  }
+
+  function firstAvailableGameplaySlot() {
+    const slots = listSaveSlots().gameplay;
+    const empty = slots.find(s => s.empty);
+    return empty ? empty.id : null;
+  }
+
+  function writeSaveSlot(id, kind, label, data) {
+    const previous = readSaveSlot(id);
+    const now = Date.now();
+    const record = {
+      meta: {
+        id: id, kind: kind, label: label,
+        createdAt: previous && !previous.corrupt ? previous.meta.createdAt : now,
+        updatedAt: now
+      },
+      data: data
+    };
+    try {
+      localStorage.setItem(slotKey(id), JSON.stringify(record));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function migrateLegacySave() {
+    try {
+      const legacy = localStorage.getItem(LEGACY_SAVE_KEY);
+      if (!legacy || GAMEPLAY_SLOTS.some(id => localStorage.getItem(slotKey(id)))) return;
+      const data = JSON.parse(legacy);
+      if (!data || data.v !== CV.Save.VERSION || !data.player) return;
+      if (writeSaveSlot('gameplay-1', 'gameplay', 'Slot 1', data)) localStorage.removeItem(LEGACY_SAVE_KEY);
+    } catch (e) {}
+  }
+
+  function captureSaveData() {
+    if (!G.p) return null;
+    G.p.x = G.pe ? G.pe.x : 0;
+    G.p.y = G.pe ? G.pe.y : 0;
+    return CV.Save.serialize(G.p, G.worldAll, G.settings);
   }
 
   function save() {
-    if (!G.p) return;
+    if (!G.activeSaveId || G.activeSaveKind !== 'gameplay') return false;
+    const data = captureSaveData();
+    if (!data) return false;
+    const n = GAMEPLAY_SLOTS.indexOf(G.activeSaveId) + 1;
+    return writeSaveSlot(G.activeSaveId, 'gameplay', 'Slot ' + n, data);
+  }
+
+  function createDebugSnapshot(label) {
+    const saves = listSaveSlots();
+    if (saves.snapshots.length >= MAX_DEBUG_SNAPSHOTS) return { ok: false, why: 'Limite di 10 snapshot raggiunto' };
+    const data = captureSaveData();
+    if (!data) return { ok: false, why: 'Nessuna partita da salvare' };
+    let id = 'debug-' + Date.now();
+    while (readSaveSlot(id)) id += '-1';
+    const fallback = 'Snapshot ' + new Date().toLocaleString('it-IT');
+    const cleanLabel = String(label || '').trim().slice(0, 48) || fallback;
+    return writeSaveSlot(id, 'debug', cleanLabel, data)
+      ? { ok: true, id: id }
+      : { ok: false, why: 'Impossibile scrivere il salvataggio' };
+  }
+
+  function deleteSaveSlot(id) {
+    if (GAMEPLAY_SLOTS.indexOf(id) < 0 && !/^debug-[a-z0-9-]+$/.test(id || '')) return false;
     try {
-      G.p.x = G.pe ? G.pe.x : 0;
-      G.p.y = G.pe ? G.pe.y : 0;
-      const data = CV.Save.serialize(G.p, G.worldAll, G.settings);
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-    } catch (e) { /* spazio esaurito o modalità privata: si continua a giocare */ }
+      localStorage.removeItem(slotKey(id));
+      if (G.activeSaveId === id) { G.activeSaveId = null; G.activeSaveKind = null; }
+      if (G.debugSourceId === id) { G.debugSourceId = null; G.activeSaveKind = null; }
+      return true;
+    } catch (e) { return false; }
   }
 
   function wipeSave() {
-    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+    if (!G.activeSaveId || !deleteSaveSlot(G.activeSaveId)) {
+      CV.UI.toast('Impossibile cancellare il salvataggio', 'bad');
+      return;
+    }
     CV.UI.toast('Salvataggio cancellato', 'bad');
     G.paused = true;
-    CV.UI.openTitle(false);
+    CV.UI.openTitle();
   }
 
   function loadSettings() {
@@ -987,6 +1105,9 @@
   G.toTitle = toTitle;
   G.save = save;
   G.wipeSave = wipeSave;
+  G.listSaveSlots = listSaveSlots;
+  G.deleteSaveSlot = deleteSaveSlot;
+  G.createDebugSnapshot = createDebugSnapshot;
   G.saveSettings = saveSettings;
   G.applyAudioSettings = applyAudioSettings;
   G.refreshMusic = refreshMusic;

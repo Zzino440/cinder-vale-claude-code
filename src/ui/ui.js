@@ -81,6 +81,7 @@
     if (!current) return;
     switch (current) {
       case 'title': el.innerHTML = viewTitle(); break;
+      case 'titleSettings': el.innerHTML = viewTitleSettings(); break;
       case 'menu': el.innerHTML = viewMenu(); break;
       case 'dialogue': el.innerHTML = viewDialogue(); break;
       case 'shop': el.innerHTML = viewShop(); break;
@@ -96,16 +97,56 @@
      SCHERMATA DEL TITOLO
      ================================================================ */
   function viewTitle() {
-    const has = ctxData.hasSave;
-    return `<div class="title-screen">
+    const saves = G.listSaveSlots();
+    const occupied = saves.gameplay.filter(s => !s.empty && !s.corrupt && !s.incompatible);
+    const latest = occupied.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+    const gameplay = saves.gameplay.map(viewSaveSlot).join('');
+    const snapshots = saves.snapshots.length
+      ? `<div class="save-section-title">Snapshot debug</div>${saves.snapshots.map(viewSaveSlot).join('')}`
+      : '';
+    return `<div class="title-screen save-title-screen">
       <h1>CINDER VALE</h1>
       <div class="tagline">Sette anni di cenere</div>
-      <div class="menu">
-        ${has ? '<button class="primary" data-act="continue">Continua</button>' : ''}
-        <button class="${has ? '' : 'primary'}" data-act="newgame">${has ? 'Nuova partita' : 'Inizia'}</button>
+      <div class="save-browser">
+        ${latest ? `<button class="primary continue-latest" data-act="continue" data-slot="${latest.id}">Continua · ${esc(latest.playerName)}</button>` : ''}
+        <div class="save-section-title">Partite</div>
+        ${gameplay}
+        ${snapshots}
+      </div>
+      <div class="menu title-actions">
         <button data-act="settings">Impostazioni</button>
       </div>
       <div class="ver">v1.0 — tocca lo schermo o usa WASD</div>
+    </div>`;
+  }
+
+  function viewSaveSlot(slot) {
+    const title = slot.kind === 'debug' ? (slot.label || 'Snapshot debug') : 'Slot ' + slot.index;
+    if (slot.empty) return `<div class="save-slot empty-slot">
+      <div class="save-slot-copy"><b>${title}</b><small>Slot vuoto</small></div>
+      <button data-act="newgame" data-slot="${slot.id}">Nuova partita</button>
+    </div>`;
+    if (slot.corrupt || slot.incompatible) return `<div class="save-slot invalid-slot">
+      <div class="save-slot-copy"><b>${title}</b><small>${slot.corrupt ? 'Dati non leggibili' : 'Versione non compatibile'}</small></div>
+      <button data-act="deleteslot" data-slot="${slot.id}">Elimina</button>
+    </div>`;
+    const mins = Math.floor(slot.playtime / 60);
+    const when = slot.updatedAt ? new Date(slot.updatedAt).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    return `<div class="save-slot ${slot.kind === 'debug' ? 'debug-slot' : ''}">
+      <div class="save-slot-copy">
+        <b>${esc(title)}</b>
+        <span>${esc(slot.playerName)} · Liv ${slot.level} · ${esc(slot.zone)}</span>
+        <small>${mins} min${when ? ' · ' + esc(when) : ''}</small>
+      </div>
+      <button class="${slot.kind === 'gameplay' ? 'primary' : ''}" data-act="continue" data-slot="${slot.id}">${slot.kind === 'debug' ? 'Ripristina' : 'Carica'}</button>
+      <button class="ghost delete-slot" data-act="deleteslot" data-slot="${slot.id}">Elimina</button>
+    </div>`;
+  }
+
+  function viewTitleSettings() {
+    return `<div class="panel">
+      <div class="panel-head"><h2>Impostazioni</h2><button class="close-x" data-act="backtitle">✕</button></div>
+      <div class="panel-body">${viewSettings()}</div>
     </div>`;
   }
 
@@ -486,34 +527,49 @@
         </div>
       </div>
 
-      <div class="sect">Partita</div>
+      ${G.p ? `<div class="sect">Partita</div>
       <div class="opt-row">
         <div class="lbl">Salvataggio automatico
-          <small>Il gioco salva a ogni cambio di zona e ogni due minuti.</small>
+          <small>${G.activeSaveKind === 'debug' ? 'Sessione snapshot protetta: il salvataggio automatico è sospeso.' : 'Il gioco salva nello slot attivo a ogni cambio di zona e ogni due minuti.'}</small>
         </div>
       </div>
       <div class="btn-row" style="margin-top:10px">
-        <button data-act="save">Salva ora</button>
+        <button data-act="save" ${G.activeSaveKind === 'debug' ? 'disabled' : ''}>Salva ora</button>
         <button data-act="title">Torna al titolo</button>
       </div>
-      <div class="btn-row" style="margin-top:8px">
+      ${G.activeSaveKind === 'gameplay' ? `<div class="btn-row" style="margin-top:8px">
         <button data-act="wipe" style="border-color:var(--blood);color:var(--blood)">Cancella salvataggio</button>
-      </div>
-      <div class="hint">Uccisioni: ${G.p.kills} · Morti: ${G.p.deaths} · Tempo: ${Math.floor(G.p.playtime / 60)} min</div>
+      </div>` : ''}
+      <div class="hint">${G.activeSaveKind === 'gameplay' ? 'Slot attivo: ' + G.activeSaveId.slice(-1) : 'Origine: snapshot protetto'} · Uccisioni: ${G.p.kills} · Morti: ${G.p.deaths} · Tempo: ${Math.floor(G.p.playtime / 60)} min</div>
 
       <div class="sect">Debug</div>
       <div class="seg" style="margin-bottom:10px">
         ${debugSections.map(x => `<button class="${debugTab === x[0] ? 'on' : ''}" data-act="debugtab" data-t="${x[0]}">${x[1]}</button>`).join('')}
       </div>
-      ${viewDebugPanel()}`;
+      ${viewDebugPanel()}` : ''}`;
   }
 
   /* ---------------- Debug ---------------- */
-  const debugSections = [['respawn', 'Respawn']];
+  const debugSections = [['respawn', 'Respawn'], ['saves', 'Snapshot']];
 
   function viewDebugPanel() {
     if (debugTab === 'respawn') return viewDebugRespawn();
+    if (debugTab === 'saves') return viewDebugSaves();
     return '';
+  }
+
+  function viewDebugSaves() {
+    const snapshots = G.listSaveSlots().snapshots;
+    return `<div class="opt-row">
+      <div class="lbl">Snapshot protetto
+        <small>Crea una copia che gli autosalvataggi non possono sovrascrivere. Puoi ripristinarla dalla schermata iniziale.</small>
+      </div>
+    </div>
+    <div class="snapshot-create">
+      <input type="text" maxlength="48" data-snapshot-label placeholder="Es. Prima del boss">
+      <button data-act="debugsnapshot">Crea snapshot</button>
+    </div>
+    <div class="hint">Snapshot disponibili: ${snapshots.length} / 10</div>`;
   }
 
   const DEBUG_TIMERS = [
@@ -909,7 +965,10 @@
         render();
         break;
       }
-      case 'save': G.save(); toast('Partita salvata', 'good'); break;
+      case 'save':
+        if (G.save()) toast('Partita salvata', 'good');
+        else toast('Salvataggio non disponibile', 'bad');
+        break;
       case 'title': G.toTitle(); break;
       case 'wipe': {
         if (t.dataset.confirm === '1') { G.wipeSave(); }
@@ -920,6 +979,13 @@
 
       /* Debug */
       case 'debugtab': debugTab = t.dataset.t; render(); break;
+      case 'debugsnapshot': {
+        const input = el.querySelector('[data-snapshot-label]');
+        const result = G.createDebugSnapshot(input ? input.value : '');
+        if (result.ok) { toast('Snapshot creato', 'gold'); render(); }
+        else toast(result.why, 'bad');
+        break;
+      }
       case 'dbgforcerespawn': {
         const labels = { all: 'Tutto (esclusi boss)', common: 'Nemici comuni', chests: 'Forzieri', shrines: 'Santuari', epic: 'Epici/Boss' };
         G.debugForceRespawn(t.dataset.scope);
@@ -1026,9 +1092,20 @@
       }
 
       /* Titolo */
-      case 'newgame': G.newGame(); break;
-      case 'continue': G.continueGame(); break;
-      case 'settings': open('menu', { tab: 'settings' }); break;
+      case 'newgame': G.newGame(t.dataset.slot); break;
+      case 'continue': G.continueGame(t.dataset.slot); break;
+      case 'deleteslot': {
+        if (t.dataset.confirm === '1') {
+          if (G.deleteSaveSlot(t.dataset.slot)) { toast('Salvataggio eliminato', 'bad'); render(); }
+          else toast('Impossibile eliminare il salvataggio', 'bad');
+        } else {
+          t.dataset.confirm = '1';
+          t.textContent = 'Conferma';
+        }
+        break;
+      }
+      case 'settings': open('titleSettings', {}); break;
+      case 'backtitle': open('title', {}); break;
     }
   }
 
@@ -1094,7 +1171,7 @@
     openShop: (id) => { shopTab = 'buy'; open('shop', { shop: id }); },
     openContracts: () => { CV.Contracts.ensure(G.p, G.rng, G.p.level, !!G.p.flags.endgame); open('contracts', {}); },
     openMenu: (tab) => { open('menu', { tab: tab || 'inv' }); },
-    openTitle: (hasSave) => open('title', { hasSave: hasSave }),
+    openTitle: () => open('title', {}),
     openDeath: () => open('death', {}),
     openVictory: () => open('victory', {})
   };
