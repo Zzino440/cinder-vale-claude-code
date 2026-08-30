@@ -1,0 +1,24 @@
+{
+  "name": "Cinder Vale",
+  "short_name": "Cinder Vale",
+  "description": "Action RPG in pixel art ambientato in una valle sepolta dalla cenere.",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#0d0b10",
+  "theme_color": "#0d0b10",
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

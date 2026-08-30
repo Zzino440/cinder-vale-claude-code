@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d0b10">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Cinder Vale</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+  <div id="overlay"></div>
+  <div id="toasts"></div>
+</div>
+
+<script src="src/core/rng.js"></script>
+<script src="src/data/gamedata.js"></script>
+<script src="src/data/story.js"></script>
+<script src="src/core/player.js"></script>
+<script src="src/core/systems.js"></script>
+<script src="src/engine/art.js"></script>
+<script src="src/engine/audio.js"></script>
+<script src="src/engine/input.js"></script>
+<script src="src/engine/render.js"></script>
+<script src="src/game/world.js"></script>
+<script src="src/game/entities.js"></script>
+<script src="src/ui/hud.js"></script>
+<script src="src/ui/ui.js"></script>
+<script src="src/game/main.js"></script>
+<script>
+/* Il service worker rende il gioco giocabile offline, ma in sviluppo
+   serve versioni già scaricate: con ?dev nell'URL resta spento e, se era
+   già installato, si disinstalla da solo. */
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  if (location.search.indexOf('dev') >= 0) {
+    navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister()));
+    if (window.caches) caches.keys().then(ks => ks.forEach(k => caches.delete(k)));
+  } else {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+}
+</script>
+</body>
+</html>

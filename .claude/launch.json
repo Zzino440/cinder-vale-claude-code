@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cinder-vale",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["devserver.mjs"],
+      "port": 8123,
+      "autoPort": true
+    }
+  ]
+}
