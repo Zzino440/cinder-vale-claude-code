@@ -796,7 +796,10 @@
   function dropItemToGround(it) {
     const pe = G.pe;
     P.removeUid(G.p, it.uid, it.qty);
-    G.drops.push({ item: it, x: pe.x + 10, y: pe.y + 8, t: -1.2, vy: 0 });
+    /* Deve atterrare oltre il raggio di auto-raccolta (16px in updateDrops),
+       altrimenti il pg se lo riprende da solo appena scade il ritardo. */
+    const a = E.faceAngle(pe.face);
+    G.drops.push({ item: it, x: pe.x + Math.cos(a) * 26, y: pe.y + Math.sin(a) * 26 + 8, t: -1.2, vy: 0 });
     P.recalc(G.p);
   }
 
