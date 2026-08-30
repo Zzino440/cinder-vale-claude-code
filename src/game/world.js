@@ -11,6 +11,10 @@
   const A = CV.Art;
   const M = CV.M;
   const T = 16;   /* dimensione del tile in pixel */
+  /* La nuova tabella dei siti cambia quali scene occupano gli indici
+     deterministici. Versionare le chiavi evita di applicare a un nuovo sito
+     lo stato persistito di una scena diversa nei salvataggi esistenti. */
+  const SITE_KEY_VERSION = 2;
 
   /* Indici dei tile nell'atlante */
   const TI = {};
@@ -640,7 +644,7 @@
          (vedi updateSiteObjective) e sono deterministici — lo stesso seme
          di zona produce sempre lo stesso sito allo stesso indice. */
       z.sites.push({ id: s.id, name: s.name, tx: tx, ty: ty, r: s.r,
-        prefix: z.id + ':site' + index, keys: built.keys });
+        prefix: z.id + ':site' + SITE_KEY_VERSION + ':' + index, keys: built.keys });
       /* L'area occupata vale anche per i siti successivi */
       eachDisc(z, tx, ty, s.r + 1, (x, y, i) => { busy[i] = 1; });
     }
@@ -649,7 +653,7 @@
   function buildSite(z, s, tx, ty, index, rng, resolveRole) {
     const biome = z.def.biome;
     const floor = floorKeyFor(biome, s.carve && s.carve.key);
-    const prefix = z.id + ':site' + index;
+    const prefix = z.id + ':site' + SITE_KEY_VERSION + ':' + index;
 
     /* 1. Si libera il terreno PRIMA di modificarlo, così le collisioni
           degli alberi rimossi spariscono insieme agli alberi. */
@@ -730,6 +734,7 @@
       return {
         key: keyPrefix + j, id: id,
         x: spot.tx * T + 8, y: spot.ty * T + 8,
+        siteIndex: index, spawnIndex: j,
         hpMult: sp.hpMult || 1, dmgMult: sp.dmgMult || 1, sightMult: sp.sightMult || 1
       };
     };
@@ -755,6 +760,58 @@
       }
     }
     return { keys: keys };
+  }
+
+  /* Applica una variante deterministica ai siti già sgomberati. Il ciclo
+     zero resta intenzionalmente invariato rispetto alla prima campagna. */
+  function rollSiteMods(z, worldState) {
+    if (!D.siteMods || !D.siteModList) return;
+    const cycles = worldState.siteCycle = worldState.siteCycle || {};
+    const ready = worldState.siteCycleReady = worldState.siteCycleReady || {};
+    const now = Date.now() / 1000;
+
+    (z.sites || []).forEach((site, siteIndex) => {
+      const storedCycle = Math.max(0, cycles[site.prefix] | 0);
+      const cycle = ready[site.prefix] > now ? Math.max(0, storedCycle - 1) : storedCycle;
+      site.cycle = cycle;
+      const seed = Math.floor(CV.noise.hash2(siteIndex, cycle, z.def.seed + 7301) * 4294967296);
+      const rng = new CV.Rng(seed);
+      const mod = cycle === 0 ? D.siteMods.none : rng.weighted(D.siteModList);
+      site.mod = mod.key;
+      site.rewardBonus = mod.rewardBonus || null;
+      site.eliteBiasAdd = mod.eliteBiasAdd || 0;
+      if (mod.key === 'none') return;
+
+      site.name += ' — ' + mod.label;
+      let spawns = z.siteSpawns.filter(s => s.siteIndex === siteIndex);
+
+      if (mod.removeSpawnFrac && spawns.length > 1) {
+        const removeCount = Math.min(spawns.length - 1, Math.floor(spawns.length * mod.removeSpawnFrac));
+        const removed = new Set(rng.shuffle(spawns.slice()).slice(0, removeCount).map(s => s.key));
+        z.siteSpawns = z.siteSpawns.filter(s => !removed.has(s.key));
+        site.keys = site.keys.filter(k => !removed.has(k));
+        spawns = spawns.filter(s => !removed.has(s.key));
+      }
+
+      if (mod.extraSpawns && spawns.length) {
+        for (let j = 0; j < mod.extraSpawns; j++) {
+          const source = spawns[j % spawns.length];
+          const angle = rng.next() * Math.PI * 2;
+          const dist = 2 + (j % 2);
+          const spot = nearestFree(z,
+            site.tx + Math.round(Math.cos(angle) * dist),
+            site.ty + Math.round(Math.sin(angle) * dist), 4);
+          if (!spot) continue;
+          const extra = Object.assign({}, source, {
+            key: site.prefix + ':x' + cycle + ':' + j,
+            x: spot.tx * T + 8, y: spot.ty * T + 8,
+            spawnIndex: spawns.length + j
+          });
+          z.siteSpawns.push(extra);
+          site.keys.push(extra.key);
+        }
+      }
+    });
   }
 
   /* ================================================================
@@ -946,5 +1003,5 @@
     return findFreeSpot(z, rng);
   }
 
-  CV.World = { T, generate, solidAt, blocked, moveWithCollision, findFreeSpot, entryPoint, idx, inside, TI };
+  CV.World = { T, generate, rollSiteMods, solidAt, blocked, moveWithCollision, findFreeSpot, entryPoint, idx, inside, TI };
 })(typeof window !== 'undefined' ? window : globalThis);

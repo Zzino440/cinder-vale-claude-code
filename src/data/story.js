@@ -238,6 +238,11 @@
           { text: '(Congedarsi)', act: { close: true } }
         ] },
       { id: 'm_end2', sub: true, say: 'Adesso si ricostruisce. È un lavoro più lento e più noioso di quello che hai fatto tu. Ma dura di più.',
+        opts: [
+          { text: 'La valle è ancora pericolosa?', to: 'm_end3' },
+          { text: '(Congedarsi)', act: { close: true } }
+        ] },
+      { id: 'm_end3', sub: true, say: 'Più che mai, in certi angoli. Chi va a cercare nei luoghi più remoti lo scopre da solo.',
         opts: [{ text: '(Congedarsi)', act: { close: true } }] },
 
       { id: 'm_m4_wait', cond: { questStage: ['q_main4', 0] },

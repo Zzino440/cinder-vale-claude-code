@@ -89,17 +89,21 @@
   function enterZone(zoneId, fromZone, hard, atPos) {
     const z = W.generate(zoneId);
     if (!z) return;
+
+    /* Stato mutevole persistente della zona */
+    G.worldAll.zones[zoneId] = G.worldAll.zones[zoneId] || { killed: {}, chests: {}, nodes: {}, shrines: {} };
+    G.world = G.worldAll.zones[zoneId];
+    if (!G.world.shrines) G.world.shrines = {};
+    if (!G.world.siteCycle) G.world.siteCycle = {};
+    if (!G.world.siteCycleReady) G.world.siteCycleReady = {};
+    W.rollSiteMods(z, G.world);
+
     G.zone = z;
     CV.Render.onZone(z);
 
     /* Il punto reale d'ingresso serve anche a tenere liberi gli immediati
        dintorni: vale sia per i varchi sia per la posizione di un salvataggio. */
     const pos = atPos || W.entryPoint(z, fromZone);
-
-    /* Stato mutevole persistente della zona */
-    G.worldAll.zones[zoneId] = G.worldAll.zones[zoneId] || { killed: {}, chests: {}, nodes: {}, shrines: {} };
-    G.world = G.worldAll.zones[zoneId];
-    if (!G.world.shrines) G.world.shrines = {};
 
     /* Applica ciò che è già successo qui. Forzieri e santuari, come i nemici
        comuni, restano "usati" solo fino a un timestamp: passato quello,
@@ -638,17 +642,22 @@
   function grantSiteReward(site) {
     const def = D.sites[site.id];
     const rw = def && def.clearReward;
+    G.world.siteCycle = G.world.siteCycle || {};
+    G.world.siteCycleReady = G.world.siteCycleReady || {};
+    G.world.siteCycle[site.prefix] = (G.world.siteCycle[site.prefix] || 0) + 1;
+    G.world.siteCycleReady[site.prefix] = Date.now() / 1000 + debugSeconds('enemyRespawnSeconds', 300);
     if (!rw) { CV.UI.toast(site.name + ' sgomberato.', 'good'); return; }
     const p = G.p, pe = G.pe;
     const evs = [];
+    const bonus = site.rewardBonus || {};
     if (rw.xp) P.gainXp(p, rw.xp, evs);
     if (rw.gold) {
-      const g = G.rng.int(rw.gold[0], rw.gold[1]);
+      const g = Math.round(G.rng.int(rw.gold[0], rw.gold[1]) * (bonus.goldMult || 1));
       p.gold += g;
       G.floats.push(E.makeFloat(pe.x, pe.y - 24, '+' + g + ' oro', '#ffd166'));
     }
     if (rw.tier) {
-      const tier = Math.min(4, rw.tier + (p.flags.endgame ? 1 : 0));
+      const tier = Math.min(4, rw.tier + (bonus.tier || 0) + (p.flags.endgame ? 1 : 0));
       const item = CV.Loot.makeGear(G.rng, tier, 0.15);
       if (item) {
         P.addItem(p, item);

@@ -108,6 +108,7 @@
     const out = [];
     const rng = new CV.Rng(z.def.seed + 17);
     const killed = (worldState.killed = worldState.killed || {});
+    const siteCycles = worldState.siteCycle || {};
     const levelScale = Math.max(0, (playerLevel - 1) * 0.06) + (endgame ? 0.25 : 0);
 
     (z.namedDefs || []).forEach((n, i) => {
@@ -143,12 +144,20 @@
     const eliteChance = endgame ? 0.42 : 0.16;
     (z.siteSpawns || []).forEach((s) => {
       if (isDead(killed, s.key)) return;
+      const site = z.sites[s.siteIndex];
+      const cycle = site && site.cycle != null
+        ? site.cycle
+        : (site ? Math.max(0, siteCycles[site.prefix] | 0) : 0);
+      const rollRng = cycle === 0 ? rng : new CV.Rng(Math.floor(
+        CV.noise.hash2(s.siteIndex, s.spawnIndex, z.def.seed + Math.imul(cycle, 7919)) * 4294967296
+      ));
+      const chance = Math.min(1, eliteChance + (site ? site.eliteBiasAdd || 0 : 0));
       let hpMult = s.hpMult || 1, affixes = [], boostLoot = false;
-      if (rng.next() < eliteChance) {
-        const n = endgame ? (rng.chance(0.4) ? 3 : (rng.chance(0.5) ? 2 : 1)) : (rng.chance(0.25) ? 2 : 1);
+      if (rollRng.next() < chance) {
+        const n = endgame ? (rollRng.chance(0.4) ? 3 : (rollRng.chance(0.5) ? 2 : 1)) : (rollRng.chance(0.25) ? 2 : 1);
         const pool = D.enemyAffixOrder.slice();
         for (let i = 0; i < n && pool.length; i++) {
-          affixes.push(pool.splice(Math.floor(rng.next() * pool.length), 1)[0]);
+          affixes.push(pool.splice(Math.floor(rollRng.next() * pool.length), 1)[0]);
         }
         hpMult *= 1.5 + affixes.length * 0.25;
         boostLoot = true;

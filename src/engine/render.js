@@ -414,6 +414,7 @@
     drawDecals(b, G, ox, oy);
     drawGroundFog(b, ox, oy);
     drawPlaneVeil(b, G.zone.def.biome);
+    drawSiteMods(b, G.zone, ox, oy);
 
     /* Raccolta di tutto ciò che va ordinato per profondità */
     const list = [];
@@ -653,6 +654,28 @@
     b.globalAlpha = 0.10;
     b.fillStyle = g.shadow;
     b.fillRect(0, 0, R.viewW, R.viewH);
+    b.globalAlpha = 1;
+  }
+
+  /* Alone al suolo per rendere leggibile una variante prima dello scontro. */
+  function drawSiteMods(b, z, ox, oy) {
+    const colors = { infested: '#7cc46a', cursed: '#c9a6ff', hasty: '#ffd166' };
+    for (const site of (z.sites || [])) {
+      const color = colors[site.mod];
+      if (!color) continue;
+      const x = site.tx * T + 8 - ox, y = site.ty * T + 8 - oy;
+      const r = site.r * T;
+      if (x + r < 0 || y + r < 0 || x - r > R.viewW || y - r > R.viewH) continue;
+      b.globalAlpha = 0.16 + Math.sin(R.time * 2.4 + site.tx) * 0.05;
+      b.strokeStyle = color;
+      b.lineWidth = 2;
+      b.beginPath();
+      b.ellipse(Math.round(x), Math.round(y), r, r * 0.58, 0, 0, Math.PI * 2);
+      b.stroke();
+      b.globalAlpha = 0.05;
+      b.fillStyle = color;
+      b.fill();
+    }
     b.globalAlpha = 1;
   }
 

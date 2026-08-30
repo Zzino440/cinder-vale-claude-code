@@ -251,6 +251,17 @@
   };
   D.enemyAffixOrder = ['swift', 'vampiric', 'volatile', 'ashen', 'burning', 'armored'];
 
+  /* Modificatori dei siti dopo il primo sgombero. Il peso `w` è letto
+     direttamente da Rng.weighted; `none` mantiene la scena ordinaria. */
+  D.siteMods = {
+    none:     { key: 'none',     w: 10 },
+    infested: { key: 'infested', w: 3, label: 'Infestato', extraSpawns: 2 },
+    cursed:   { key: 'cursed',   w: 2, label: 'Maledetto', eliteBiasAdd: 0.35 },
+    hasty:    { key: 'hasty',    w: 2, label: 'Abbandonato in Fretta', removeSpawnFrac: 0.5,
+                rewardBonus: { goldMult: 1.4, tier: 1 } }
+  };
+  D.siteModList = Object.keys(D.siteMods).map(k => D.siteMods[k]);
+
   /* Nodi di raccolta sparsi nel mondo */
   D.harvestNodes = {
     herb:  { icon: 'node_herb',  name: 'Erbe',     respawn: 150, table: ['ashbloom', 'palemoss', 'glowcap', 'blackroot', 'emberthistle', 'nightcrown', 'frostpetal'] },
@@ -413,6 +424,56 @@
         { role: 'beast', dx: 3, dy: 1 }
       ],
       clearReward: { xp: 25, gold: [10, 20], tier: 1 }
+    },
+
+    pyre_circle: {
+      id: 'pyre_circle', name: 'Cerchio del Rogo', r: 5, weight: 2,
+      biomes: ['moor', 'forest', 'keep'],
+      needs: ['ranged'],
+      carve: { mode: 'ring', key: 'stone', gaps: 0.55 },
+      props: [
+        { kind: 'campfire', dx: 0, dy: 0 },
+        { kind: 'pillar', dx: -2, dy: 2 }, { kind: 'pillar', dx: 2, dy: 2 }
+      ],
+      spawns: [
+        { role: 'ranged', dx: -3, dy: -1 },
+        { role: 'ranged', dx: 3, dy: -1 },
+        { role: 'ranged', dx: 0, dy: 3 }
+      ],
+      clearReward: { xp: 45, gold: [20, 40], tier: 2 }
+    },
+
+    bone_pit: {
+      id: 'bone_pit', name: "Fossa d'Ossa", r: 4, weight: 3,
+      biomes: ['moor', 'forest', 'cave'],
+      needs: ['beast'],
+      carve: { mode: 'clear', key: 'dirt' },
+      props: [
+        { kind: 'boneheap', dx: -2, dy: -1 }, { kind: 'boneheap', dx: 2, dy: -1 },
+        { kind: 'gravestone', dx: 0, dy: 2 }
+      ],
+      nodes: [{ type: 'bones', dx: 0, dy: 0 }],
+      spawns: [
+        { role: 'beast', dx: -2, dy: -2, hpMult: 0.75 },
+        { role: 'beast', dx: 2, dy: -2, hpMult: 0.75 },
+        { role: 'beast', dx: -2, dy: 2, hpMult: 0.75 },
+        { role: 'beast', dx: 2, dy: 2, hpMult: 0.75 }
+      ],
+      clearReward: { xp: 35, gold: [5, 15], tier: 1 }
+    },
+
+    profaned_altar: {
+      id: 'profaned_altar', name: 'Altare Profanato', r: 4, weight: 4,
+      biomes: ['forest', 'cave', 'keep'],
+      needs: ['melee'],
+      carve: { mode: 'clear', key: 'stone' },
+      props: [
+        { kind: 'pillar', dx: -2, dy: 0 }, { kind: 'pillar', dx: 2, dy: 0 },
+        { kind: 'boneheap', dx: 0, dy: -2 }
+      ],
+      shrine: { dx: 0, dy: 1 },
+      spawns: [{ role: 'melee', dx: 0, dy: -1, hpMult: 1.75, dmgMult: 1.15 }],
+      clearReward: { xp: 50, gold: [15, 30], tier: 2 }
     }
   };
 
