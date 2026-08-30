@@ -5613,8 +5613,12 @@ button:disabled { opacity: .4; }
         setTile(z, cx, cy, 'keep_floor', true);
       }
     }
-    /* Canali di lava ai lati della sala */
-    fillRect(z, 8, 21, 32, 1, 'lava', true);
+    /* Canali di lava ai lati della sala. Il varco centrale (x20-27) lascia
+       libero il corridoio [22,20,4,22] che scende al resto della Rocca:
+       prima la striscia correva su tutta la larghezza e sigillava la sala
+       del boss, corridoio incluso, tagliandola fuori dal resto della mappa. */
+    fillRect(z, 8, 21, 12, 1, 'lava', true);
+    fillRect(z, 28, 21, 12, 1, 'lava', true);
     for (const e of d.exits) clearAround(z, e.tx, e.ty, 2, 'keep_floor');
     borderWalls(z, 'keep_wall');
   }

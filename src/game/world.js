@@ -164,6 +164,8 @@
     borderWalls(z, 'rock_wall');
     for (const e of d.exits) clearAround(z, e.tx, e.ty, 2, 'cave_floor');
     scatterRocks(z, rng, 18, true);
+    /* Rete di sicurezza: nessun punto d'interesse deve restare isolato. */
+    ensureConnected(z, pts);
   }
 
   function genKeep(z, rng) {
@@ -192,8 +194,12 @@
         setTile(z, cx, cy, 'keep_floor', true);
       }
     }
-    /* Canali di lava ai lati della sala */
-    fillRect(z, 8, 21, 32, 1, 'lava', true);
+    /* Canali di lava ai lati della sala. Il varco centrale (x20-27) lascia
+       libero il corridoio [22,20,4,22] che scende al resto della Rocca:
+       prima la striscia correva su tutta la larghezza e sigillava la sala
+       del boss, corridoio incluso, tagliandola fuori dal resto della mappa. */
+    fillRect(z, 8, 21, 12, 1, 'lava', true);
+    fillRect(z, 28, 21, 12, 1, 'lava', true);
     for (const e of d.exits) clearAround(z, e.tx, e.ty, 2, 'keep_floor');
     borderWalls(z, 'keep_wall');
   }
@@ -232,6 +238,67 @@
       }
     }
     carve(tx, ty);
+  }
+
+  /* Insieme delle celle non solide raggiungibili da `start` (BFS 4-direzionale). */
+  function floodReachable(z, start) {
+    const seen = new Uint8Array(z.w * z.h);
+    const startI = idx(z, start[0], start[1]);
+    seen[startI] = 1;
+    const stack = [start[0], start[1]];
+    while (stack.length) {
+      const y = stack.pop(), x = stack.pop();
+      const neigh = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+      for (const [nx, ny] of neigh) {
+        if (!inside(z, nx, ny)) continue;
+        const i = idx(z, nx, ny);
+        if (seen[i] || z.solid[i]) continue;
+        seen[i] = 1;
+        stack.push(nx, ny);
+      }
+    }
+    return seen;
+  }
+
+  /* Corridoio in linea retta (nessuna casualità, nessun guard): usato solo
+     come riparazione di emergenza quando tunnel() non è riuscito a collegare
+     due punti, per garantire sempre la connessione indipendentemente dalla
+     fortuna dell'rng. */
+  function carveDirect(z, a, b) {
+    let [x, y] = a;
+    const [tx, ty] = b;
+    const carve = (cx, cy) => {
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++)
+          setTile(z, M.clamp(cx + dx, 2, z.w - 3), M.clamp(cy + dy, 2, z.h - 3), 'cave_floor', false);
+    };
+    while (x !== tx) { carve(x, y); x += Math.sign(tx - x); }
+    while (y !== ty) { carve(x, y); y += Math.sign(ty - y); }
+    carve(tx, ty);
+  }
+
+  /* Verifica finale: ogni punto d'interesse deve essere raggiungibile dal
+     primo (un'uscita). tunnel() è casuale e con un guard limitato può non
+     arrivare a destinazione su tratte lunghe e sfortunate, lasciando una
+     sala scavata ma isolata dal resto della caverna: qui la si ricollega
+     con certezza, senza affidarsi di nuovo alla fortuna dell'rng. */
+  function ensureConnected(z, pts) {
+    if (!pts.length) return;
+    let seen = floodReachable(z, pts[0]);
+    for (let pass = 0; pass < pts.length; pass++) {
+      const unreached = pts.filter(p => !seen[idx(z, p[0], p[1])]);
+      if (!unreached.length) break;
+      const reached = pts.filter(p => seen[idx(z, p[0], p[1])]);
+      for (const p of unreached) {
+        let best = reached[0], bestD = Infinity;
+        for (const r of reached) {
+          const d = (r[0] - p[0]) * (r[0] - p[0]) + (r[1] - p[1]) * (r[1] - p[1]);
+          if (d < bestD) { bestD = d; best = r; }
+        }
+        carveDirect(z, best, p);
+      }
+      seen = floodReachable(z, pts[0]);
+    }
   }
 
   function windingPath(z, rng, x0, y0, x1, y1, key) {
