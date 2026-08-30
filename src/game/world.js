@@ -46,28 +46,30 @@
 
   function genVillage(z, rng) {
     const d = z.def;
-    /* Prato con macchie di terra */
+    /* Terreno freddo e saturo d'acqua: il verde sopravvive solo a chiazze,
+       mentre cenere e fango dominano le aree calpestate. */
     for (let y = 0; y < z.h; y++) {
       for (let x = 0; x < z.w; x++) {
         const n = CV.noise.fbm(x / 9, y / 9, d.seed, 3);
-        setTile(z, x, y, n > 0.58 ? 'dirt' : (n < 0.36 ? 'ash_grass' : 'grass'), false);
+        setTile(z, x, y, n > 0.55 ? 'dirt' : (n < 0.43 ? 'ash_grass' : 'grass'), false);
       }
     }
     /* Palizzata perimetrale con varchi verso le uscite */
     for (let x = 0; x < z.w; x++) { setTile(z, x, 0, 'village_wall', true); setTile(z, x, 1, 'village_wall', true); setTile(z, x, z.h - 1, 'village_wall', true); }
     for (let y = 0; y < z.h; y++) { setTile(z, 0, y, 'village_wall', true); setTile(z, 1, y, 'village_wall', true); setTile(z, z.w - 1, y, 'village_wall', true); setTile(z, z.w - 2, y, 'village_wall', true); }
 
-    /* Strade principali a croce */
-    fillRect(z, 22, 4, 4, z.h - 6, 'path', false);
-    fillRect(z, 6, 21, z.w - 12, 4, 'path', false);
-    fillRect(z, 18, 18, 12, 12, 'path', false);
+    /* Strade principali e piazza: abbastanza larghe per combattere e per
+       leggere bene sul touch, ma con bordi irregolari aggiunti dal terreno. */
+    fillRect(z, 21, 4, 6, z.h - 6, 'path', false);
+    fillRect(z, 5, 20, z.w - 10, 6, 'path', false);
+    fillRect(z, 17, 17, 14, 15, 'path', false);
 
     /* Case attorno alla piazza */
     const spots = [
-      [8, 14, 0], [36, 12, 1], [8, 30, 1], [36, 30, 0], [17, 6, 1], [30, 36, 1]
+      [6, 13, 0], [36, 11, 2], [18, 21, 1], [29, 18, 0], [15, 5, 1], [30, 36, 2]
     ];
     for (const [tx, ty, v] of spots) {
-      const img = A.house(v);
+      const img = A.hdHouse() || A.house(v);
       const px = tx * T, py = ty * T;
       z.props.push({ kind: 'house', img: img, x: px + img.width / 2, y: py + img.height, ox: img.width / 2, oy: img.height,
         col: { x: px + 3, y: py + img.height - 26, w: img.width - 6, h: 24 } });
@@ -79,8 +81,24 @@
       }
     }
 
+    /* Landmark e arredi deliberati: Ashford deve sembrare abitata, non
+       prodotta da una semplice dispersione casuale di oggetti. */
+    const fixed = [
+      ['hearth_shrine', A.hdProp('shrine') || A.hearthShrine(), 24, 27, 18, 8],
+      ['handcart', A.hdProp('handcart') || A.handcart(0), 30, 29, 22, 7],
+      ['handcart', A.hdProp('handcart') || A.handcart(1), 13, 27, 22, 7],
+      ['woodpile', A.hdProp('woodpile') || A.woodpile(0), 29, 19, 20, 6],
+      ['woodpile', A.hdProp('woodpile') || A.woodpile(1), 17, 33, 20, 6]
+    ];
+    for (const [kind, img, tx, ty, cw, ch] of fixed) {
+      const x = tx * T + 8, y = ty * T + 16;
+      z.props.push({ kind: kind, img: img, x: x, y: y, ox: img.width / 2, oy: img.height,
+        col: { x: x - cw / 2, y: y - ch, w: cw, h: ch } });
+      z.solid[idx(z, tx, ty)] = 1;
+    }
+
     /* Alberi e cespugli negli spazi liberi */
-    scatterNature(z, rng, 26, 20, [0, 1], 0.5);
+    scatterNature(z, rng, 34, 24, [0, 1], 0.62);
     /* Uscita verso la brughiera: apre la palizzata */
     for (const ex of d.exits) clearAround(z, ex.tx, ex.ty, 2, 'path');
   }
@@ -310,8 +328,8 @@
     boneheap:   { make: (v) => A.boneheap(v),  n: 2, oy: 13, sway: 0,    solid: false },
     cobweb:     { make: (v) => A.cobweb(v),    n: 2, oy: 14, sway: 0.35, solid: false },
     stump:      { make: (v) => A.stump(v),     n: 2, oy: 15, sway: 0,    solid: true, cw: 11, ch: 6 },
-    barrel:     { make: () => A.barrel(),      n: 1, oy: 17, sway: 0,    solid: true, cw: 10, ch: 6 },
-    crate:      { make: () => A.crate(),       n: 1, oy: 15, sway: 0,    solid: true, cw: 12, ch: 6 },
+    barrel:     { make: () => A.hdProp('barrel') || A.barrel(), n: 1, oy: 17, sway: 0, solid: true, cw: 10, ch: 6 },
+    crate:      { make: () => A.hdProp('crate') || A.crate(),   n: 1, oy: 15, sway: 0, solid: true, cw: 12, ch: 6 },
     gravestone: { make: (v) => A.gravestone(v),n: 2, oy: 17, sway: 0,    solid: true, cw: 9,  ch: 5 },
     fence:      { make: (v) => A.fence(v),     n: 2, oy: 15, sway: 0,    solid: true, cw: 14, ch: 5 },
     /* Le stalagmiti non bloccano: nelle gallerie strette chiuderebbero
@@ -324,7 +342,7 @@
   /* Densità alte: nella vista rientra circa il 4% della mappa, quindi
      numeri bassi si traducono in schermate spoglie. */
   const BIOME_DECOR = {
-    village: [['tallgrass', 120], ['flowers', 60], ['fence', 12], ['barrel', 7], ['crate', 7], ['stump', 9]],
+    village: [['tallgrass', 92], ['flowers', 28], ['fence', 18], ['barrel', 10], ['crate', 9], ['stump', 7]],
     moor:    [['tallgrass', 210], ['flowers', 34], ['stump', 18], ['boneheap', 14], ['gravestone', 11], ['fence', 8]],
     forest:  [['tallgrass', 290], ['mushrooms', 42], ['stump', 28], ['flowers', 48], ['boneheap', 9]],
     cave:    [['stalagmite', 75], ['mushrooms', 48], ['boneheap', 24], ['cobweb', 32], ['crate', 6]],

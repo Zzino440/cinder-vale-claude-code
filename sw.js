@@ -1,5 +1,5 @@
 /* Service worker: rende il gioco giocabile offline dopo la prima apertura. */
-const CACHE = 'cindervale-v1';
+const CACHE = 'cindervale-v3-combat-hd';
 const ASSETS = [
   './',
   './index.html',
@@ -18,7 +18,20 @@ const ASSETS = [
   './src/game/entities.js',
   './src/ui/hud.js',
   './src/ui/ui.js',
-  './src/game/main.js'
+  './src/game/main.js',
+  './assets/hd/runtime/ashford-house.png',
+  './assets/hd/runtime/traveler-atlas.png',
+  './assets/hd/runtime/traveler-attack-atlas.png',
+  './assets/hd/runtime/traveler-defense-atlas.png',
+  './assets/hd/runtime/traveler-mobility-magic-atlas.png',
+  './assets/hd/runtime/traveler-defeat-atlas.png',
+  './assets/hd/runtime/hearth-shrine.png',
+  './assets/hd/runtime/handcart.png',
+  './assets/hd/runtime/woodpile.png',
+  './assets/hd/runtime/stone-wall.png',
+  './assets/hd/runtime/barrel.png',
+  './assets/hd/runtime/crate.png',
+  './assets/hd/runtime/ashford-terrain-atlas.jpg'
 ];
 
 self.addEventListener('install', (e) => {

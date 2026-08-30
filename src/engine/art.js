@@ -7,6 +7,88 @@
   'use strict';
   const CV = root.CV || (root.CV = {});
 
+  /* Asset moderni ad alta densita'. La logica del gioco continua a usare
+     coordinate da 16 px, ma questi PNG conservano due pixel grafici per
+     ogni unita' del mondo. Se un file manca, il renderer usa gli sprite
+     procedurali storici: il gioco resta sempre avviabile. */
+  const HD_PATHS = {
+    house: 'assets/hd/runtime/ashford-house.png',
+    hero: 'assets/hd/runtime/traveler-atlas.png',
+    attack: 'assets/hd/runtime/traveler-attack-atlas.png',
+    defense: 'assets/hd/runtime/traveler-defense-atlas.png',
+    actions: 'assets/hd/runtime/traveler-mobility-magic-atlas.png',
+    defeat: 'assets/hd/runtime/traveler-defeat-atlas.png',
+    shrine: 'assets/hd/runtime/hearth-shrine.png',
+    handcart: 'assets/hd/runtime/handcart.png',
+    woodpile: 'assets/hd/runtime/woodpile.png',
+    wall: 'assets/hd/runtime/stone-wall.png',
+    barrel: 'assets/hd/runtime/barrel.png',
+    crate: 'assets/hd/runtime/crate.png',
+    terrain: 'assets/hd/runtime/ashford-terrain-atlas.jpg'
+  };
+  const HD = {};
+  let hdLoaded = false;
+
+  function loadHdAssets() {
+    const embedded = root.CV_EMBEDDED_ASSETS || {};
+    const jobs = Object.keys(HD_PATHS).map((key) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => { HD[key] = img; resolve(); };
+      img.onerror = () => resolve();
+      img.src = embedded[key] || HD_PATHS[key];
+    }));
+    return Promise.all(jobs).then(() => { hdLoaded = true; });
+  }
+
+  function hdReady() { return hdLoaded && !!(HD.house && HD.hero && HD.terrain); }
+  function hdImage(key, width, height) {
+    const source = HD[key];
+    if (!source) return null;
+    return { hd: true, source: source, sx: 0, sy: 0, sw: source.width, sh: source.height, width: width, height: height };
+  }
+  function hdHouse() { return hdImage('house', 88, 80); }
+  function hdProp(key) {
+    const sizes = {
+      shrine: [60, 55], handcart: [48, 32], woodpile: [36, 28],
+      wall: [64, 24], barrel: [24, 28], crate: [24, 24]
+    };
+    const size = sizes[key];
+    return size ? hdImage(key, size[0], size[1]) : null;
+  }
+  function hdHeroFrame(direction, frame) {
+    if (!HD.hero) return null;
+    const col = direction === 'up' ? 2 : (direction === 'side' ? 1 : 0);
+    const row = frame ? 1 : 0;
+    return { hd: true, source: HD.hero, sx: col * 40, sy: row * 56, sw: 40, sh: 56, width: 20, height: 28 };
+  }
+  function hdCombatFrame(kind, frame) {
+    const specs = {
+      attack: { key: 'attack', cols: 4, fw: 96, fh: 64, width: 48, height: 32, row: 0 },
+      defense: { key: 'defense', cols: 4, fw: 80, fh: 64, width: 40, height: 32, row: 0 },
+      dodge: { key: 'actions', cols: 3, fw: 80, fh: 64, width: 40, height: 32, row: 0 },
+      cast: { key: 'actions', cols: 3, fw: 80, fh: 64, width: 40, height: 32, row: 1 },
+      defeat: { key: 'defeat', cols: 3, fw: 96, fh: 64, width: 48, height: 32, row: 0 }
+    };
+    const spec = specs[kind];
+    if (!spec || !HD[spec.key]) return null;
+    const index = Math.max(0, Math.min(spec.cols - 1, frame | 0));
+    return {
+      hd: true, source: HD[spec.key], sx: index * spec.fw, sy: spec.row * spec.fh,
+      sw: spec.fw, sh: spec.fh, width: spec.width, height: spec.height
+    };
+  }
+  function hdTile(key, tx, ty) {
+    if (!HD.terrain) return null;
+    const material = key === 'path' ? 0
+      : (key === 'grass' || key === 'ash_grass') ? 1
+        : key === 'village_wall' ? 2 : 3;
+    return {
+      source: HD.terrain,
+      sx: material * 128 + ((tx * 37 + ty * 17) & 96),
+      sy: ((tx * 11 + ty * 29) & 96), sw: 32, sh: 32
+    };
+  }
+
   /* ---------------- Palette ----------------
      Un carattere = un colore. '.' = trasparente. */
   const PAL = {
@@ -857,12 +939,91 @@
     return c;
   }
 
+  /* Il protagonista usa una tela piu' grande degli sprite storici 16x16.
+     La collisione resta invariata: guadagniamo solo una silhouette piu'
+     autorevole, mantello, pelliccia e metallo leggibili anche su telefono. */
+  function heroSprite(name) {
+    const m = /^p_(down|up|side)_(\d)$/.exec(name);
+    if (!m) return null;
+    const dir = m[1], step = parseInt(m[2], 10);
+    const cv = makeCanvas(24, 28), ctx = cv.getContext('2d');
+    const outline = '#15121a', iron = '#777b82', ironHi = '#b8b9b4';
+    const leather = '#5a3b27', leatherHi = '#815638';
+    const cloth = '#292a2d', clothHi = '#3b3b3c';
+    const fur = '#9a9184', furHi = '#c0b7a7', skin = '#c58b66';
+    const boot = '#211711';
+    const legA = step ? 6 : 8, legB = step ? 15 : 14;
+    const footA = step ? 24 : 23, footB = step ? 22 : 23;
+
+    /* Gambe e stivali: due pose nette, senza deformare tutto il corpo. */
+    ctx.fillStyle = outline;
+    ctx.fillRect(legA - 1, 19, 5, 7); ctx.fillRect(legB - 1, 19, 5, 7);
+    ctx.fillStyle = leather;
+    ctx.fillRect(legA, 19, 3, 5); ctx.fillRect(legB, 19, 3, 5);
+    ctx.fillStyle = boot;
+    ctx.fillRect(legA - 1, footA, 5, 3); ctx.fillRect(legB - 1, footB, 5, 3);
+
+    if (dir === 'side') {
+      /* Profilo: il mantello allungato rende chiara la direzione. */
+      ctx.fillStyle = outline; ctx.fillRect(7, 9, 11, 13);
+      ctx.fillStyle = cloth; ctx.fillRect(8, 10, 9, 11);
+      ctx.fillStyle = clothHi; ctx.fillRect(9, 10, 3, 9);
+      ctx.fillStyle = leather; ctx.fillRect(7, 16, 11, 3);
+      ctx.fillStyle = leatherHi; ctx.fillRect(15, 11, 4, 8);
+      ctx.fillStyle = outline; ctx.fillRect(8, 2, 9, 7); ctx.fillRect(6, 6, 13, 2);
+      ctx.fillStyle = leather; ctx.fillRect(9, 3, 7, 4); ctx.fillRect(7, 6, 11, 1);
+      ctx.fillStyle = skin; ctx.fillRect(15, 7, 3, 3);
+      ctx.fillStyle = fur; ctx.fillRect(7, 9, 12, 4);
+      ctx.fillStyle = furHi; ctx.fillRect(9, 9, 7, 1);
+      /* Scudo visto di taglio sulla schiena. */
+      ctx.fillStyle = outline; ctx.fillRect(5, 11, 3, 9);
+      ctx.fillStyle = iron; ctx.fillRect(6, 12, 2, 7);
+    } else {
+      /* Corpo a strati: tunica, cintura, braccia e mantello. */
+      ctx.fillStyle = outline; ctx.fillRect(5, 9, 14, 13);
+      ctx.fillStyle = cloth; ctx.fillRect(6, 10, 12, 11);
+      ctx.fillStyle = clothHi; ctx.fillRect(7, 10, 3, 9);
+      ctx.fillStyle = outline; ctx.fillRect(3, 11, 4, 9); ctx.fillRect(17, 11, 4, 9);
+      ctx.fillStyle = leatherHi; ctx.fillRect(4, 12, 3, 7); ctx.fillRect(17, 12, 3, 7);
+      ctx.fillStyle = leather; ctx.fillRect(5, 16, 14, 3);
+      ctx.fillStyle = iron; ctx.fillRect(11, 16, 2, 3);
+      ctx.fillStyle = ironHi; ctx.fillRect(11, 16, 1, 1);
+      /* Mantello e spallaccio di pelliccia. */
+      ctx.fillStyle = fur; ctx.fillRect(4, 9, 16, 4);
+      ctx.fillStyle = furHi; ctx.fillRect(6, 9, 12, 1);
+      ctx.fillStyle = '#716a61';
+      ctx.fillRect(5, 12, 2, 2); ctx.fillRect(10, 11, 2, 2); ctx.fillRect(17, 12, 2, 2);
+      /* Cappuccio/berretto e volto. */
+      ctx.fillStyle = outline; ctx.fillRect(7, 2, 10, 7); ctx.fillRect(5, 6, 14, 2);
+      ctx.fillStyle = leather; ctx.fillRect(8, 3, 8, 4); ctx.fillRect(6, 6, 12, 1);
+      if (dir === 'down') {
+        ctx.fillStyle = skin; ctx.fillRect(9, 7, 6, 3);
+        ctx.fillStyle = '#2b201b'; ctx.fillRect(10, 9, 4, 1);
+        /* Scudo frontale laterale, piccolo ma riconoscibile. */
+        ctx.fillStyle = outline; ctx.fillRect(18, 12, 5, 8);
+        ctx.fillStyle = leather; ctx.fillRect(19, 13, 3, 6);
+        ctx.fillStyle = iron; ctx.fillRect(20, 15, 2, 2);
+      } else {
+        ctx.fillStyle = '#3a2920'; ctx.fillRect(8, 7, 8, 3);
+        ctx.fillStyle = leatherHi; ctx.fillRect(8, 11, 2, 8);
+        ctx.fillStyle = iron; ctx.fillRect(4, 13, 2, 6);
+      }
+    }
+    return cv;
+  }
+
   /* Costruisce (e memorizza) un canvas dallo sprite.
      `swap` rimappa singoli caratteri su colori diversi: permette di
      riusare lo stesso disegno per varianti di colore. */
   function sprite(name, swap) {
     const key = name + (swap ? '|' + JSON.stringify(swap) : '');
     if (cache.has(key)) return cache.get(key);
+
+    if (!swap && /^p_(down|up|side)_\d$/.test(name)) {
+      const hero = heroSprite(name);
+      cache.set(key, hero);
+      return hero;
+    }
 
     let def = SPR[name];
     if (!def) { cache.set(key, null); return null; }
@@ -957,19 +1118,19 @@
     /* I toni base sono volutamente distanti fra loro: la luce d'ambiente
        li riavvicina, e se partono già simili il terreno diventa una
        poltiglia bruna in cui non si distingue più nulla. */
-    grass:      { z: 10, base: '#3a5637', tones: ['#436340', '#2e4629', '#4a6b45'], speck: '#5c8050', solid: false },
-    ash_grass:  { z: 11, base: '#4b4d3a', tones: ['#565843', '#3e4030', '#5f6149'], speck: '#727355', solid: false },
-    dirt:       { z: 13, base: '#4e3c2b', tones: ['#5a4632', '#412f21', '#634e39', ], speck: '#75603f', solid: false },
+    grass:      { z: 10, base: '#334531', tones: ['#3c5138', '#293a27', '#485d40'], speck: '#5c6d50', solid: false },
+    ash_grass:  { z: 11, base: '#454638', tones: ['#515244', '#383a30', '#5b5a49'], speck: '#6f6e59', solid: false },
+    dirt:       { z: 13, base: '#45382d', tones: ['#514237', '#392d25', '#5b4a3b'], speck: '#756451', solid: false },
     ash:        { z: 12, base: '#4c4657', tones: ['#575062', '#3f3949', '#605970'], speck: '#736c85', solid: false },
     stone:      { z: 14, base: '#42404e', tones: ['#4c4a59', '#383644', '#565365'], speck: '#635f73', solid: false },
     cave_floor: { z: 15, base: '#2f2a37', tones: ['#383140', '#28232f', '#403948'], speck: '#4c4458', solid: false },
     keep_floor: { z: 16, base: '#3a3340', tones: ['#443c4b', '#312b36', '#4c4454'], speck: '#584e62', solid: false },
-    path:       { z: 20, base: '#6d6350', tones: ['#7a6f5a', '#5f5646', '#857a63'], speck: '#968a70', solid: false },
+    path:       { z: 20, base: '#5a554b', tones: ['#676156', '#4b473f', '#706a5e'], speck: '#898275', solid: false },
     wood:       { z: 21, base: '#5a4028', tones: ['#644731', '#4e3722', '#6d4e36'], speck: '#7a5a3f', solid: false },
     /* I muri non partecipano alle transizioni: hanno già il proprio stacco */
     rock_wall:  { z: 90, base: '#2a2630', tones: ['#332e3a', '#241f2b', '#3a3442'], speck: '#443d4c', solid: true, wall: true },
     keep_wall:  { z: 90, base: '#332c38', tones: ['#3c3442', '#2b2530', '#443b4a'], speck: '#524859', solid: true, wall: true },
-    village_wall:{ z: 90, base: '#4a3b2c', tones: ['#554435', '#3f3226', '#5f4d3c'], speck: '#6b5844', solid: true, wall: true }
+    village_wall:{ z: 90, base: '#3b3a3d', tones: ['#48474a', '#302f33', '#535155'], speck: '#67656a', solid: true, wall: true }
   };
   const TILE_KEYS = Object.keys(TILE_DEFS);
 
@@ -1217,50 +1378,129 @@
     return cv;
   }
 
-  /* Casa di villaggio: muro + tetto + porta + finestre illuminate */
+  /* Casa di Ashford: pietra bagnata, travi annerite, tetto ripido e
+     rattoppato. Le tre varianti condividono i materiali ma non la sagoma. */
   function house(variant) {
     const key = 'house' + variant;
     if (propCache.has(key)) return propCache.get(key);
-    const w = variant === 0 ? 64 : 48;
-    const h = 60;
+    const w = variant === 0 ? 72 : (variant === 1 ? 56 : 64);
+    const h = variant === 2 ? 70 : 66;
     const cv = makeCanvas(w, h);
     const ctx = cv.getContext('2d');
-    const wallY = 24, wallH = h - wallY - 2;
+    const rng = new CV.Rng(8200 + variant * 97);
+    const wallY = variant === 2 ? 29 : 27, wallH = h - wallY - 2;
 
-    /* Muro */
-    ctx.fillStyle = '#0d0b10'; ctx.fillRect(2, wallY, w - 4, wallH);
-    ctx.fillStyle = '#54432f'; ctx.fillRect(3, wallY + 1, w - 6, wallH - 2);
-    ctx.fillStyle = '#61503a';
-    for (let y = wallY + 2; y < h - 4; y += 5) ctx.fillRect(4, y, w - 8, 1);
-    /* Travi verticali */
-    ctx.fillStyle = '#3b2e20';
-    for (let x = 8; x < w - 8; x += 14) ctx.fillRect(x, wallY + 1, 3, wallH - 2);
-
-    /* Tetto: falde a gradini, in pixel */
-    const peak = 4;
-    for (let y = 0; y < wallY; y++) {
-      const t = y / wallY;
-      const half = Math.round((w / 2) * (0.18 + 0.82 * t));
-      ctx.fillStyle = y < 3 ? '#2a1f16' : (y % 4 < 2 ? '#3d2c1e' : '#4a3524');
-      ctx.fillRect(w / 2 - half, peak + y - 4, half * 2, 1);
+    /* Basamento di pietra, con corsi irregolari e giunti profondi. */
+    ctx.fillStyle = '#111016'; ctx.fillRect(2, wallY, w - 4, wallH);
+    ctx.fillStyle = '#4b4949'; ctx.fillRect(3, wallY + 1, w - 6, wallH - 2);
+    for (let y = wallY + 3; y < h - 2; y += 6) {
+      ctx.fillStyle = '#29282c'; ctx.fillRect(3, y, w - 6, 1);
+      for (let x = 5 + ((y / 6) % 2) * 5; x < w - 5; x += 12) ctx.fillRect(x, y - 5, 1, 5);
     }
-    ctx.fillStyle = '#241a12';
-    ctx.fillRect(0, wallY - 2, w, 3);
+    ctx.fillStyle = '#686463';
+    for (let i = 0; i < 22; i++) ctx.fillRect(5 + rng.int(0, w - 11), wallY + 2 + rng.int(0, wallH - 7), 2, 1);
+
+    /* Struttura lignea annerita, più pesante del vecchio graticcio. */
+    ctx.fillStyle = '#241a16';
+    ctx.fillRect(3, wallY, w - 6, 3);
+    for (let x = 8; x < w - 7; x += 15) ctx.fillRect(x, wallY, 3, wallH - 1);
+    ctx.fillStyle = '#5d4130';
+    for (let x = 9; x < w - 7; x += 15) ctx.fillRect(x, wallY + 2, 1, wallH - 5);
+
+    /* Tetto molto ripido: scandole visibili, cenere e alcune rotture. */
+    for (let y = 1; y < wallY; y++) {
+      const t = y / wallY;
+      const half = Math.round((w / 2) * (0.10 + 0.94 * t));
+      ctx.fillStyle = y % 5 < 2 ? '#2d2420' : '#3a2d27';
+      ctx.fillRect(Math.floor(w / 2 - half), y, half * 2, 2);
+      if (y % 5 === 0) {
+        ctx.fillStyle = '#181418';
+        for (let x = Math.floor(w / 2 - half) + 3; x < w / 2 + half - 2; x += 7) ctx.fillRect(x, y + 1, 1, 2);
+      }
+    }
+    ctx.fillStyle = '#171319'; ctx.fillRect(0, wallY - 2, w, 4);
+    ctx.fillStyle = 'rgba(176,170,166,0.28)';
+    for (let i = 0; i < 15; i++) ctx.fillRect(5 + rng.int(0, w - 11), 5 + rng.int(0, wallY - 9), rng.int(1, 4), 1);
+    /* Tetto sfondato diverso per variante. */
+    const holeX = variant === 0 ? w - 24 : 13;
+    ctx.fillStyle = '#0d0b10'; ctx.fillRect(holeX, 10 + variant * 3, 7, 5);
+    ctx.fillRect(holeX - 2, 12 + variant * 3, 11, 2);
+
+    /* Comignolo di pietra. */
+    const chimX = variant === 1 ? w - 16 : 12;
+    ctx.fillStyle = '#151419'; ctx.fillRect(chimX, 5, 9, 20);
+    ctx.fillStyle = '#555357'; ctx.fillRect(chimX + 1, 6, 7, 18);
+    ctx.fillStyle = '#777477'; ctx.fillRect(chimX, 5, 9, 3);
+    ctx.fillStyle = '#29282c'; ctx.fillRect(chimX + 2, 11, 6, 1); ctx.fillRect(chimX + 1, 17, 6, 1);
 
     /* Porta */
-    const dx = Math.floor(w / 2) - 6;
-    ctx.fillStyle = '#0d0b10'; ctx.fillRect(dx, h - 20, 12, 18);
-    ctx.fillStyle = '#3a2a1c'; ctx.fillRect(dx + 1, h - 19, 10, 17);
-    ctx.fillStyle = '#ffd166'; ctx.fillRect(dx + 8, h - 11, 2, 2);
+    const dx = Math.floor(w / 2) - 7;
+    ctx.fillStyle = '#0d0b10'; ctx.fillRect(dx, h - 23, 14, 21);
+    ctx.fillStyle = '#33231c'; ctx.fillRect(dx + 2, h - 21, 10, 19);
+    ctx.fillStyle = '#6e4932';
+    for (let x = dx + 3; x < dx + 12; x += 3) ctx.fillRect(x, h - 20, 1, 17);
+    ctx.fillStyle = '#8b8b88'; ctx.fillRect(dx + 9, h - 12, 2, 2);
 
-    /* Finestre accese: l'unico calore rimasto nella valle */
-    const wy = h - 32;
-    for (const wx of (variant === 0 ? [10, w - 22] : [8, w - 20])) {
+    /* Finestre piccole e calde: sicurezza fragile nel villaggio. */
+    const wy = h - 34;
+    for (const wx of [7, w - 19]) {
       ctx.fillStyle = '#0d0b10'; ctx.fillRect(wx, wy, 12, 10);
-      ctx.fillStyle = '#c98a3a'; ctx.fillRect(wx + 1, wy + 1, 10, 8);
-      ctx.fillStyle = '#ffd166'; ctx.fillRect(wx + 2, wy + 2, 8, 6);
-      ctx.fillStyle = '#3a2a1c'; ctx.fillRect(wx + 5, wy, 2, 10); ctx.fillRect(wx, wy + 4, 12, 2);
+      ctx.fillStyle = '#b96532'; ctx.fillRect(wx + 1, wy + 1, 10, 8);
+      ctx.fillStyle = '#f0a94c'; ctx.fillRect(wx + 2, wy + 2, 8, 6);
+      ctx.fillStyle = '#241a16'; ctx.fillRect(wx + 5, wy, 2, 10); ctx.fillRect(wx, wy + 4, 12, 2);
     }
+    propCache.set(key, cv);
+    return cv;
+  }
+
+  function hearthShrine() {
+    const key = 'hearthShrine';
+    if (propCache.has(key)) return propCache.get(key);
+    const cv = makeCanvas(36, 46), ctx = cv.getContext('2d');
+    ctx.fillStyle = '#111016'; ellip(ctx, 18, 40, 16, 5);
+    ctx.fillStyle = '#4a484c'; ellip(ctx, 18, 38, 15, 5);
+    ctx.fillStyle = '#777379'; ellip(ctx, 18, 36, 11, 3);
+    ctx.fillStyle = '#17151b'; ctx.fillRect(11, 9, 14, 29);
+    ctx.fillStyle = '#4b484f'; ctx.fillRect(12, 10, 12, 27);
+    ctx.fillStyle = '#68646b'; ctx.fillRect(13, 11, 3, 23);
+    ctx.fillStyle = '#28262c';
+    ctx.fillRect(15, 15, 6, 1); ctx.fillRect(15, 24, 6, 1); ctx.fillRect(17, 12, 1, 21);
+    /* Cavita' della brace, unica nota calda. */
+    ctx.fillStyle = '#161017'; ctx.fillRect(14, 27, 8, 8);
+    ctx.fillStyle = '#8f301e'; ctx.fillRect(15, 29, 6, 5);
+    ctx.fillStyle = '#f06c3a'; ctx.fillRect(17, 28, 3, 5);
+    ctx.fillStyle = '#ffd166'; ctx.fillRect(18, 30, 2, 2);
+    propCache.set(key, cv);
+    return cv;
+  }
+
+  function handcart(variant) {
+    const key = 'handcart' + variant;
+    if (propCache.has(key)) return propCache.get(key);
+    const cv = makeCanvas(34, 24), ctx = cv.getContext('2d');
+    ctx.fillStyle = '#151116'; circle(ctx, 9, 18, 5); circle(ctx, 25, 18, 5);
+    ctx.fillStyle = '#5d4938'; circle(ctx, 9, 18, 3); circle(ctx, 25, 18, 3);
+    ctx.fillStyle = '#92908d'; ctx.fillRect(8, 14, 2, 8); ctx.fillRect(5, 17, 8, 2); ctx.fillRect(24, 14, 2, 8); ctx.fillRect(21, 17, 8, 2);
+    ctx.fillStyle = '#211814'; ctx.fillRect(4, 5, 26, 12);
+    ctx.fillStyle = variant ? '#60452f' : '#523b2c'; ctx.fillRect(5, 6, 24, 10);
+    ctx.fillStyle = '#2b1e18'; for (let y = 8; y < 16; y += 3) ctx.fillRect(6, y, 22, 1);
+    ctx.fillStyle = '#6f6c68'; ctx.fillRect(5, 6, 24, 2); ctx.fillRect(6, 14, 22, 2);
+    ctx.fillStyle = '#3b2a20'; ctx.fillRect(1, 15, 7, 2); ctx.fillRect(27, 15, 7, 2);
+    propCache.set(key, cv);
+    return cv;
+  }
+
+  function woodpile(variant) {
+    const key = 'woodpile' + variant;
+    if (propCache.has(key)) return propCache.get(key);
+    const cv = makeCanvas(28, 19), ctx = cv.getContext('2d');
+    ctx.fillStyle = '#181216'; ctx.fillRect(2, 5, 24, 13);
+    for (let y = 6; y < 17; y += 4) for (let x = 4 + ((y / 4) % 2) * 3; x < 24; x += 6) {
+      ctx.fillStyle = '#533a29'; ctx.fillRect(x, y, 7, 3);
+      ctx.fillStyle = '#8a6847'; ctx.fillRect(x + 5, y, 2, 3);
+      ctx.fillStyle = '#2b1d18'; ctx.fillRect(x + 6, y + 1, 1, 1);
+    }
+    ctx.fillStyle = '#383238'; ctx.fillRect(1, 16, 26, 2);
     propCache.set(key, cv);
     return cv;
   }
@@ -1606,8 +1846,9 @@
     MASK_VARIANTS, edgeMask, edgePiece, getShadowTex,
     sprite, flashOf, buildTileAtlas, tileIndex,
     getTileAtlas: () => tileAtlas || buildTileAtlas(),
-    tree, rock, bush, house, pillar, circle, iconFor, makeCanvas,
+    tree, rock, bush, house, hearthShrine, handcart, woodpile, pillar, circle, iconFor, makeCanvas,
     stump, tallgrass, flowers, mushrooms, boneheap, barrel, crate,
-    gravestone, fence, stalagmite, cobweb, banner
+    gravestone, fence, stalagmite, cobweb, banner,
+    loadHdAssets, hdReady, hdHouse, hdProp, hdHeroFrame, hdCombatFrame, hdTile
   };
 })(typeof window !== 'undefined' ? window : globalThis);

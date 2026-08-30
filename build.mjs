@@ -38,6 +38,24 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 
 const css = read('styles.css');
 const js = SOURCES.map(f => `/* ===== ${f} ===== */\n${read(f)}`).join('\n\n');
+const ASSETS = {
+  house: ['assets/hd/runtime/ashford-house.png', 'image/png'],
+  hero: ['assets/hd/runtime/traveler-atlas.png', 'image/png'],
+  attack: ['assets/hd/runtime/traveler-attack-atlas.png', 'image/png'],
+  defense: ['assets/hd/runtime/traveler-defense-atlas.png', 'image/png'],
+  actions: ['assets/hd/runtime/traveler-mobility-magic-atlas.png', 'image/png'],
+  defeat: ['assets/hd/runtime/traveler-defeat-atlas.png', 'image/png'],
+  shrine: ['assets/hd/runtime/hearth-shrine.png', 'image/png'],
+  handcart: ['assets/hd/runtime/handcart.png', 'image/png'],
+  woodpile: ['assets/hd/runtime/woodpile.png', 'image/png'],
+  wall: ['assets/hd/runtime/stone-wall.png', 'image/png'],
+  barrel: ['assets/hd/runtime/barrel.png', 'image/png'],
+  crate: ['assets/hd/runtime/crate.png', 'image/png'],
+  terrain: ['assets/hd/runtime/ashford-terrain-atlas.jpg', 'image/jpeg']
+};
+const embeddedAssets = Object.fromEntries(Object.entries(ASSETS).map(([key, [file, mime]]) => [
+  key, `data:${mime};base64,${readFileSync(join(ROOT, file)).toString('base64')}`
+]));
 
 const BODY = `<div id="app">
   <canvas id="game"></canvas>
@@ -47,6 +65,7 @@ const BODY = `<div id="app">
 <style>
 ${css}
 </style>
+<script>window.CV_EMBEDDED_ASSETS=${JSON.stringify(embeddedAssets)};</script>
 <script>
 ${js}
 </script>`;

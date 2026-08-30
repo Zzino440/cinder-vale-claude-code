@@ -31,7 +31,7 @@
       aimAngle: Math.PI / 2,
       target: null,              /* nemico agganciato dall'assistenza di mira */
       attackDir: 0, comboStep: 0, comboT: 0,
-      iframes: 0, blockT: 0, blocking: false, blockHeld: false,
+      iframes: 0, blockT: 0, parryT: 0, blocking: false, blockHeld: false,
       bufAttack: 0, bufDodge: 0, /* comandi premuti un attimo troppo presto */
       lungeT: 0, lungeDir: 0,    /* passo in avanti verso il bersaglio */
       flash: 0, knockX: 0, knockY: 0,
@@ -243,6 +243,7 @@
       const facing = Math.abs(M.angDelta(pe.aimAngle, incoming)) < E.BLOCK_ARC;
       if (facing) {
         if (perfect) {
+          pe.parryT = 0.18;
           CV.Audio.play('parry');
           G.floats.push(E.makeFloat(pe.x, pe.y - 20, 'PARATA!', '#ffd166', true));
           G.shake(6, 0.18);

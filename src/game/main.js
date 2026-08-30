@@ -32,8 +32,9 @@
   };
 
   /* ================= AVVIO ================= */
-  function boot() {
+  async function boot() {
     const canvas = document.getElementById('game');
+    await CV.Art.loadHdAssets();
     CV.Art.buildTileAtlas();
     CV.Render.init(canvas);
     CV.Input.attach(canvas);
@@ -266,6 +267,7 @@
     if (pe.flash > 0) pe.flash -= dt;
     if (pe.iframes > 0) pe.iframes -= dt;
     if (pe.castT > 0) pe.castT -= dt;
+    if (pe.parryT > 0) pe.parryT -= dt;
 
     /* Contraccolpo */
     if (Math.abs(pe.knockX) > 1 || Math.abs(pe.knockY) > 1) {
@@ -423,6 +425,8 @@
       if (pe.stateT >= dur) { pe.state = 'recover'; pe.stateT = 0; }
     } else if (pe.state === 'recover') {
       if (pe.stateT >= (pe.recoverDur || 0.12)) { pe.state = 'idle'; pe.stateT = 0; }
+    } else if (pe.state === 'hurt' && pe.stateT >= 0.22) {
+      pe.state = 'idle'; pe.stateT = 0;
     }
 
     /* Lava e acqua fanno male / rallentano */

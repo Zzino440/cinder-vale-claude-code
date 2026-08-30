@@ -13,6 +13,7 @@
   const P = CV.Player;
   const M = CV.M;
   const T = 16;
+  const ART_SCALE = 2;
 
   const R = {
     canvas: null, ctx: null,
@@ -67,11 +68,14 @@
 
     /* Fattore di ingrandimento intero: più grande su schermi grandi */
     const minDim = Math.min(R.cssW, R.cssH);
-    R.scale = M.clamp(Math.round(minDim / 210), 2, 5);
+    const rawScale = M.clamp(Math.round(minDim / 210), 2, 5);
+    /* Multipli di ART_SCALE: ogni pixel dell'asset HD arriva allo schermo
+       con una misura uniforme, senza colonne duplicate in modo irregolare. */
+    R.scale = rawScale <= 2 ? 2 : (rawScale <= 4 ? 4 : 6);
     R.viewW = Math.ceil(R.cssW / R.scale);
     R.viewH = Math.ceil(R.cssH / R.scale);
 
-    R.buf = A.makeCanvas(R.viewW, R.viewH);
+    R.buf = A.makeCanvas(R.viewW * ART_SCALE, R.viewH * ART_SCALE);
     R.bctx = R.buf.getContext('2d');
     R.bctx.imageSmoothingEnabled = false;
     R.ctx.imageSmoothingEnabled = false;
@@ -145,15 +149,20 @@
   function buildZoneCanvas(z) {
     if (R.zoneId === z.id && R.zoneCanvas) return R.zoneCanvas;
     const atlas = A.getTileAtlas();
-    const cv = A.makeCanvas(z.pxW, z.pxH);
+    const hdZone = z.id === 'ashford' && A.hdReady();
+    const cv = A.makeCanvas(z.pxW * ART_SCALE, z.pxH * ART_SCALE);
     const ctx = cv.getContext('2d');
     ctx.imageSmoothingEnabled = false;
+    ctx.setTransform(ART_SCALE, 0, 0, ART_SCALE, 0, 0);
 
     /* Passata 1: il terreno di base */
     for (let ty = 0; ty < z.h; ty++) {
       for (let tx = 0; tx < z.w; tx++) {
         const i = ty * z.w + tx;
-        ctx.drawImage(atlas, z.variant[i] * T, z.tiles[i] * T, T, T, tx * T, ty * T, T, T);
+        const key = A.TILE_KEYS[z.tiles[i]];
+        const hd = hdZone ? A.hdTile(key, tx, ty) : null;
+        if (hd) ctx.drawImage(hd.source, hd.sx, hd.sy, hd.sw, hd.sh, tx * T, ty * T, T, T);
+        else ctx.drawImage(atlas, z.variant[i] * T, z.tiles[i] * T, T, T, tx * T, ty * T, T, T);
       }
     }
 
@@ -169,7 +178,7 @@
       return A.TILE_DEFS[A.TILE_KEYS[z.tiles[ty * z.w + tx]]];
     };
 
-    for (let ty = 0; ty < z.h; ty++) {
+    for (let ty = 0; !hdZone && ty < z.h; ty++) {
       for (let tx = 0; tx < z.w; tx++) {
         const selfDef = zOf(tx, ty);
         if (!selfDef || selfDef.wall) continue;
@@ -274,6 +283,31 @@
       }
     }
 
+    /* Ashford ha pioggia vecchia, fango e solchi di ruota. Questa passata
+       e' prerenderizzata: aggiunge materia senza pesare sul frame mobile. */
+    if (z.id === 'ashford') {
+      ctx.globalAlpha = 0.42;
+      for (let i = 0; i < 38; i++) {
+        const tx = drng.int(4, z.w - 5), ty = drng.int(4, z.h - 5);
+        const ti = ty * z.w + tx;
+        const key = A.TILE_KEYS[z.tiles[ti]];
+        if (key !== 'path' && key !== 'dirt') continue;
+        const px = tx * T + drng.int(1, 8), py = ty * T + drng.int(3, 13);
+        const w = drng.int(5, 12);
+        ctx.fillStyle = '#252b30'; ctx.fillRect(px, py, w, 2);
+        ctx.fillStyle = 'rgba(142,157,165,0.55)'; ctx.fillRect(px + 2, py, Math.max(2, w - 5), 1);
+        ctx.fillStyle = 'rgba(12,10,14,0.45)'; ctx.fillRect(px + 1, py + 2, w - 2, 1);
+      }
+      /* Due carreggiate spezzate suggeriscono anni di passaggi. */
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = '#17151a';
+      for (let y = 5 * T; y < 44 * T; y += 23) {
+        ctx.fillRect(22 * T + 5, y, 2, 15);
+        ctx.fillRect(25 * T + 7, y + 6, 2, 13);
+      }
+      ctx.globalAlpha = 1;
+    }
+
     /* Memorizza dove sta l'acqua: il renderer la anima a ogni fotogramma */
     R.waterTiles = [];
     for (let ty = 0; ty < z.h; ty++) {
@@ -297,7 +331,7 @@
     R.waterTiles = [];
     seedAsh(z.def.biome);
     const b = z.def.biome;
-    R.fogEnabled = (b === 'moor' || b === 'forest' || b === 'keep');
+    R.fogEnabled = (b === 'village' || b === 'moor' || b === 'forest' || b === 'keep');
   }
 
   /* ---------------- Camera ---------------- */
@@ -334,12 +368,14 @@
     const b = R.bctx;
     const ox = Math.round(R.cam.x - R.shakeX), oy = Math.round(R.cam.y - R.shakeY);
 
+    b.setTransform(ART_SCALE, 0, 0, ART_SCALE, 0, 0);
     b.fillStyle = '#0d0b10';
     b.fillRect(0, 0, R.viewW, R.viewH);
 
     /* Terreno */
     const zc = buildZoneCanvas(G.zone);
-    b.drawImage(zc, ox, oy, R.viewW, R.viewH, 0, 0, R.viewW, R.viewH);
+    b.drawImage(zc, ox * ART_SCALE, oy * ART_SCALE, R.viewW * ART_SCALE, R.viewH * ART_SCALE,
+      0, 0, R.viewW, R.viewH);
 
     /* Sopra il terreno ma sotto tutto il resto: liquidi in movimento,
        tracce lasciate dagli scontri, foschia rasoterra. */
@@ -412,7 +448,7 @@
     ctx.setTransform(R.dpr, 0, 0, R.dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, R.cssW, R.cssH);
-    ctx.drawImage(R.buf, 0, 0, R.viewW, R.viewH, 0, 0, R.viewW * R.scale, R.viewH * R.scale);
+    ctx.drawImage(R.buf, 0, 0, R.buf.width, R.buf.height, 0, 0, R.viewW * R.scale, R.viewH * R.scale);
 
     /* Vignettatura */
     drawVignette(ctx);
@@ -428,7 +464,7 @@
   /* Ogni bioma ha la sua temperatura di colore: è ciò che dà a ciascun
      luogo un'identità propria senza cambiare un solo pixel degli sprite. */
   const GRADE = {
-    village: { shadow: '#3a2a4a', shadowA: 0.15, tint: '#ffd8a8', tintA: 0.18 },
+    village: { shadow: '#27303a', shadowA: 0.24, tint: '#c7c0ad', tintA: 0.10 },
     moor:    { shadow: '#2a3348', shadowA: 0.25, tint: '#b9c8dc', tintA: 0.13 },
     forest:  { shadow: '#1e2e26', shadowA: 0.29, tint: '#c2d8a8', tintA: 0.13 },
     cave:    { shadow: '#160f1e', shadowA: 0.30, tint: '#ffb07a', tintA: 0.15 },
@@ -474,7 +510,7 @@
     bx.globalCompositeOperation = 'source-over';
     bx.globalAlpha = 1;
     bx.clearRect(0, 0, bw, bh);
-    bx.drawImage(R.buf, 0, 0, R.viewW, R.viewH, 0, 0, bw, bh);
+    bx.drawImage(R.buf, 0, 0, R.buf.width, R.buf.height, 0, 0, bw, bh);
 
     bx.globalCompositeOperation = 'multiply';
     bx.drawImage(bc, 0, 0);
@@ -586,6 +622,18 @@
     b.imageSmoothingEnabled = false;
   }
 
+  function drawArtImage(b, img, dx, dy, dw, dh) {
+    const w = dw === undefined ? img.width : dw;
+    const h = dh === undefined ? img.height : dh;
+    if (img.hd) {
+      b.drawImage(img.source, img.sx, img.sy, img.sw, img.sh, dx, dy, w, h);
+    } else if (dw === undefined) {
+      b.drawImage(img, dx, dy);
+    } else {
+      b.drawImage(img, 0, 0, img.width, img.height, dx, dy, w, h);
+    }
+  }
+
   /* Ondeggio nel vento: lo sprite viene disegnato in fasce orizzontali,
      ognuna spostata un po' più della precedente salendo. La base resta
      ferma, la cima si piega — come si comporta una pianta vera. */
@@ -618,13 +666,26 @@
     }
     if (alpha < 1) b.globalAlpha = alpha;
 
+    /* Il fumo non e' parte della texture: sale lentamente e rompe la
+       staticita' dei tetti senza introdurre nuove particelle persistenti. */
+    if (p.kind === 'house') {
+      const sx = dx + Math.floor(p.img.width * 0.24), sy = dy + 7;
+      for (let i = 0; i < 4; i++) {
+        const k = ((R.time * 0.16 + i * 0.23 + p.x * 0.001) % 1);
+        b.globalAlpha = (1 - k) * 0.16;
+        b.fillStyle = '#b8b4b1';
+        A.circle(b, Math.round(sx + Math.sin(R.time * 0.55 + i) * 2 + k * 5), Math.round(sy - k * 22), 1 + Math.floor(k * 2));
+      }
+      b.globalAlpha = alpha;
+    }
+
     if (p.sway) {
       /* Ogni pianta ha una fase propria: un bosco che ondeggia all'unisono
          sembra un errore, non vento. */
       const phase = R.time * (1.1 + (p.x % 7) * 0.06) + p.x * 0.09 + p.y * 0.05;
       drawSwaying(b, p.img, dx, dy, 1.2 + p.sway * 2.2, phase);
     } else {
-      b.drawImage(p.img, dx, dy);
+      drawArtImage(b, p.img, dx, dy);
     }
     if (alpha < 1) b.globalAlpha = 1;
 
@@ -698,7 +759,9 @@
     shadow(b, n.x - ox, n.y + 6 - oy, 12, 5);
     const swap = A.NPC_SWAPS[n.id];
     const bob = Math.floor(Math.sin(R.time * 1.8 + n.x * 0.1) * 1.2);
-    b.drawImage(A.sprite('npc', swap), Math.round(n.x - 8 - ox), Math.round(n.y - 14 - oy + bob));
+    const hd = A.hdHeroFrame('down', 0);
+    if (hd) drawArtImage(b, hd, Math.round(n.x - hd.width / 2 - ox), Math.round(n.y - hd.height + 4 - oy + bob));
+    else b.drawImage(A.sprite('npc', swap), Math.round(n.x - 8 - ox), Math.round(n.y - 14 - oy + bob));
     /* Marcatore sopra la testa */
     const t = Math.sin(R.time * 3) * 1.5;
     b.fillStyle = n.marker === 'quest' ? '#ffd166' : (n.marker === 'turnin' ? '#7cc46a' : null);
@@ -876,26 +939,14 @@
     const x = Math.round(pe.x - ox), y = Math.round(pe.y - oy);
 
     if (pe.dead) {
-      b.globalAlpha = 0.5;
-      const spr = A.sprite('p_side_0');
-      b.save();
-      b.translate(x, y);
-      b.rotate(Math.PI / 2);
-      b.drawImage(spr, -8, -12);
-      b.restore();
+      const deathFrame = Math.min(2, Math.floor(pe.stateT / 0.16));
+      const spr = A.hdCombatFrame('defeat', deathFrame) || A.hdHeroFrame('side', 0) || A.sprite('p_side_0');
+      drawArtImage(b, spr, x - spr.width / 2, y - spr.height + 4);
       b.globalAlpha = 1;
       return;
     }
 
-    shadow(b, x, y + 7, 13, 5);
-
-    /* Scia della schivata */
-    if (pe.state === 'dodge') {
-      b.globalAlpha = 0.25;
-      b.fillStyle = '#c9a6ff';
-      A.circle(b, x - pe.vx * 0.04, y - pe.vy * 0.04, 6);
-      b.globalAlpha = 1;
-    }
+    shadow(b, x, y + 7, 15, 5);
 
     const frame = pe.moving ? (Math.floor(pe.animT * 8) % 2) : 0;
     let name;
@@ -903,26 +954,50 @@
     else if (pe.face === 0) name = 'p_down_' + frame;
     else name = 'p_side_' + frame;
 
-    const spr = pe.flash > 0 ? A.flashOf(name, null, '#ffffff') : A.sprite(name);
+    const direction = pe.face === 3 ? 'up' : (pe.face === 0 ? 'down' : 'side');
+    let hdSpr = null;
+    if (pe.parryT > 0) hdSpr = A.hdCombatFrame('defense', 2);
+    else if (pe.blocking) hdSpr = A.hdCombatFrame('defense', pe.blockT < 0.12 ? 0 : 1);
+    else if (pe.state === 'hurt' || pe.flash > 0) hdSpr = A.hdCombatFrame('defense', 3);
+    else if (pe.state === 'dodge') {
+      hdSpr = A.hdCombatFrame('dodge', Math.min(2, Math.floor(pe.stateT / 0.30 * 3)));
+    } else if (pe.state === 'attack') {
+      const dur = pe.swingDur || 0.26;
+      hdSpr = A.hdCombatFrame('attack', Math.min(3, Math.floor(pe.stateT / dur * 4)));
+    } else if (pe.state === 'recover') hdSpr = A.hdCombatFrame('attack', 3);
+    else if (pe.castT > 0) {
+      hdSpr = A.hdCombatFrame('cast', Math.min(2, Math.floor((0.22 - pe.castT) / 0.22 * 3)));
+    }
+    hdSpr = hdSpr || A.hdHeroFrame(direction, frame);
+    const spr = hdSpr || (pe.flash > 0 ? A.flashOf(name, null, '#ffffff') : A.sprite(name));
     const flip = pe.face === 1;
-    const dy = y - 12;
+    const heroW = hdSpr ? hdSpr.width : 20, heroH = hdSpr ? hdSpr.height : 23;
+    const dy = y - heroH + 4;
     if (pe.iframes > 0 && pe.state === 'dodge') b.globalAlpha = 0.6;
 
+    if (pe.state === 'dodge' && hdSpr) {
+      b.globalAlpha = 0.16;
+      const trailX = x - Math.cos(pe.dodgeDir || 0) * 8;
+      const trailY = dy - Math.sin(pe.dodgeDir || 0) * 5;
+      drawArtImage(b, spr, trailX - heroW / 2, trailY, heroW, heroH);
+      b.globalAlpha = 0.72;
+    }
+
     if (flip) {
-      b.save(); b.translate(x + 8, dy); b.scale(-1, 1);
-      b.drawImage(spr, 0, 0); b.restore();
+      b.save(); b.translate(x + heroW / 2, dy); b.scale(-1, 1);
+      drawArtImage(b, spr, 0, 0, heroW, heroH); b.restore();
     } else {
-      b.drawImage(spr, x - 8, dy);
+      drawArtImage(b, spr, x - Math.floor(heroW / 2), dy, heroW, heroH);
     }
     b.globalAlpha = 1;
 
     /* Arma: disegnata a parte così può ruotare durante il colpo */
-    drawWeapon(b, G, x, y);
+    if (!hdSpr) drawWeapon(b, G, x, y);
 
     /* Guardia: l'arco è disegnato nella direzione REALE di parata e con
        la sua ampiezza reale, così vedi esattamente cosa stai coprendo.
        Dorato = finestra di parata perfetta ancora aperta. */
-    if (pe.blocking) {
+    if (pe.blocking && !hdSpr) {
       const a = pe.aimAngle;
       const arc = CV.Ent.BLOCK_ARC;
       const perfect = pe.blockT < 0.25;
@@ -936,7 +1011,7 @@
     }
 
     /* Aura di lancio */
-    if (pe.castT > 0) {
+    if (pe.castT > 0 && !hdSpr) {
       b.globalAlpha = 0.5;
       b.fillStyle = '#6fb3ff';
       A.circle(b, x, y - 2, 4 + (1 - pe.castT / 0.22) * 6);
