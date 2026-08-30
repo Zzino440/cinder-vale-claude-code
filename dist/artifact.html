@@ -82,6 +82,13 @@ html, body {
 .panel-foot { flex: 0 0 auto; padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 2px solid var(--ash-3); background: var(--ash-1); }
 
 .tabs { display: flex; gap: 4px; padding: 8px 10px 0; background: var(--ash-1); flex: 0 0 auto; flex-wrap: wrap; }
+.tabs.inv-filter-bar {
+  position: sticky; top: 0; z-index: 5;
+  margin: -10px -12px 8px;
+  padding: 8px 12px 8px;
+  background: var(--ash-1);
+  border-bottom: 1px solid var(--ash-3);
+}
 .tab {
   flex: 1 1 auto; min-width: 68px;
   padding: 9px 6px; font-size: 11px; letter-spacing: .5px; text-transform: uppercase;
@@ -145,6 +152,9 @@ button:disabled { opacity: .4; }
 .stat-line { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; font-family: var(--mono); }
 .stat-line .v { color: var(--gold); }
 .stat-line .v.neg { color: var(--blood); }
+.stat-line .v .delta { font-size: 10px; margin-left: 4px; }
+.stat-line .v .delta.pos { color: var(--stam); }
+.stat-line .v .delta.neg { color: var(--blood); }
 
 /* ---------- Barre ---------- */
 .bar { height: 7px; background: var(--ash-1); border: 1px solid var(--ash-3); border-radius: 4px; overflow: hidden; margin-top: 4px; }
@@ -5574,6 +5584,8 @@ button:disabled { opacity: .4; }
     borderWalls(z, 'rock_wall');
     for (const e of d.exits) clearAround(z, e.tx, e.ty, 2, 'cave_floor');
     scatterRocks(z, rng, 18, true);
+    /* Rete di sicurezza: nessun punto d'interesse deve restare isolato. */
+    ensureConnected(z, pts);
   }
 
   function genKeep(z, rng) {
@@ -5646,6 +5658,67 @@ button:disabled { opacity: .4; }
       }
     }
     carve(tx, ty);
+  }
+
+  /* Insieme delle celle non solide raggiungibili da `start` (BFS 4-direzionale). */
+  function floodReachable(z, start) {
+    const seen = new Uint8Array(z.w * z.h);
+    const startI = idx(z, start[0], start[1]);
+    seen[startI] = 1;
+    const stack = [start[0], start[1]];
+    while (stack.length) {
+      const y = stack.pop(), x = stack.pop();
+      const neigh = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+      for (const [nx, ny] of neigh) {
+        if (!inside(z, nx, ny)) continue;
+        const i = idx(z, nx, ny);
+        if (seen[i] || z.solid[i]) continue;
+        seen[i] = 1;
+        stack.push(nx, ny);
+      }
+    }
+    return seen;
+  }
+
+  /* Corridoio in linea retta (nessuna casualità, nessun guard): usato solo
+     come riparazione di emergenza quando tunnel() non è riuscito a collegare
+     due punti, per garantire sempre la connessione indipendentemente dalla
+     fortuna dell'rng. */
+  function carveDirect(z, a, b) {
+    let [x, y] = a;
+    const [tx, ty] = b;
+    const carve = (cx, cy) => {
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++)
+          setTile(z, M.clamp(cx + dx, 2, z.w - 3), M.clamp(cy + dy, 2, z.h - 3), 'cave_floor', false);
+    };
+    while (x !== tx) { carve(x, y); x += Math.sign(tx - x); }
+    while (y !== ty) { carve(x, y); y += Math.sign(ty - y); }
+    carve(tx, ty);
+  }
+
+  /* Verifica finale: ogni punto d'interesse deve essere raggiungibile dal
+     primo (un'uscita). tunnel() è casuale e con un guard limitato può non
+     arrivare a destinazione su tratte lunghe e sfortunate, lasciando una
+     sala scavata ma isolata dal resto della caverna: qui la si ricollega
+     con certezza, senza affidarsi di nuovo alla fortuna dell'rng. */
+  function ensureConnected(z, pts) {
+    if (!pts.length) return;
+    let seen = floodReachable(z, pts[0]);
+    for (let pass = 0; pass < pts.length; pass++) {
+      const unreached = pts.filter(p => !seen[idx(z, p[0], p[1])]);
+      if (!unreached.length) break;
+      const reached = pts.filter(p => seen[idx(z, p[0], p[1])]);
+      for (const p of unreached) {
+        let best = reached[0], bestD = Infinity;
+        for (const r of reached) {
+          const d = (r[0] - p[0]) * (r[0] - p[0]) + (r[1] - p[1]) * (r[1] - p[1]);
+          if (d < bestD) { bestD = d; best = r; }
+        }
+        carveDirect(z, best, p);
+      }
+      seen = floodReachable(z, pts[0]);
+    }
   }
 
   function windingPath(z, rng, x0, y0, x1, y1, key) {
@@ -6291,6 +6364,20 @@ button:disabled { opacity: .4; }
      ed era la causa principale delle parate "dalla parte sbagliata". */
   E.BLOCK_ARC = 2.094;
 
+  /* Tempo (in secondi reali) prima che un nemico comune ripopoli il suo
+     punto. I nemici unici (named/boss) restano uccisi per sempre: la
+     voce in `killed` per loro è `true`, non un timestamp. */
+  const ENEMY_RESPAWN_SECONDS = 300;
+
+  /* `killed[key]` vale `true` (permanente) oppure un timestamp Unix:
+     "morto fino ad allora". Nessuna voce = mai ucciso. */
+  function isDead(killed, key) {
+    const v = killed[key];
+    if (!v) return false;
+    if (v === true) return true;
+    return v > Date.now() / 1000;
+  }
+
   /* ================= GIOCATORE ================= */
   E.makePlayer = function (p, x, y) {
     return {
@@ -6343,7 +6430,7 @@ button:disabled { opacity: .4; }
 
     (z.namedDefs || []).forEach((n, i) => {
       const key = z.id + ':named' + i;
-      if (killed[key]) return;
+      if (isDead(killed, key)) return;
       const e = E.makeEnemy(n.id, n.tx * W.T + 8, n.ty * W.T + 8, {
         key: key, name: n.name, hpMult: n.hpMult, dmgMult: n.dmgMult,
         drop: n.drop, boostLoot: n.boostLoot, boss: n.boss, levelScale: n.boss ? 0 : levelScale
@@ -6354,7 +6441,7 @@ button:disabled { opacity: .4; }
     (z.spawnDefs || []).forEach((s, si) => {
       for (let i = 0; i < s.count; i++) {
         const key = z.id + ':' + si + ':' + i;
-        if (killed[key]) continue;
+        if (isDead(killed, key)) continue;
         const spot = W.findFreeSpot(
           z, rng,
           safeArea && safeArea.x,
@@ -6370,7 +6457,7 @@ button:disabled { opacity: .4; }
     /* Nemici piazzati dai siti (composizioni, non posizioni a caso):
        vedi W.placeSites. Gia in posizione, gia con il ruolo risolto. */
     (z.siteSpawns || []).forEach((s) => {
-      if (killed[s.key]) return;
+      if (isDead(killed, s.key)) return;
       const e = E.makeEnemy(s.id, s.x, s.y, {
         key: s.key, hpMult: s.hpMult, dmgMult: s.dmgMult,
         sightMult: s.sightMult, levelScale: levelScale
@@ -6378,6 +6465,23 @@ button:disabled { opacity: .4; }
       if (e) out.push(e);
     });
     return out;
+  };
+
+  /* Strumento di debug: libera dalla mappa `killed` le chiavi dello scope
+     richiesto e ripopola la zona da capo. 'epic' = i named/boss (z.namedDefs),
+     'common' = densità di zona + composizioni dei siti, 'all' = entrambi. */
+  E.forceRespawn = function (z, worldState, playerLevel, safeArea, scope) {
+    const killed = (worldState.killed = worldState.killed || {});
+    if (scope === 'epic' || scope === 'all') {
+      (z.namedDefs || []).forEach((n, i) => { delete killed[z.id + ':named' + i]; });
+    }
+    if (scope === 'common' || scope === 'all') {
+      (z.spawnDefs || []).forEach((s, si) => {
+        for (let i = 0; i < s.count; i++) delete killed[z.id + ':' + si + ':' + i];
+      });
+      (z.siteSpawns || []).forEach((s) => { delete killed[s.key]; });
+    }
+    return E.spawnZone(z, worldState, playerLevel, safeArea);
   };
 
   /* ================= PROIETTILI ================= */
@@ -6496,8 +6600,13 @@ button:disabled { opacity: .4; }
       G.drops.push({ item: it, x: e.x + Math.cos(a) * d, y: e.y + Math.sin(a) * d, t: 0, vy: -30 });
     }
 
-    /* Registra la morte così il nemico non ricompare */
-    if (e.key) G.world.killed[e.key] = true;
+    /* Registra la morte: i nemici unici (named/boss) restano fuori per
+       sempre, quelli comuni ripopolano il loro punto dopo un po'.
+       Il tempo è regolabile dal menu di debug (G.settings.debug). */
+    if (e.key) {
+      const respawnSecs = G.debugSeconds('enemyRespawnSeconds', ENEMY_RESPAWN_SECONDS);
+      G.world.killed[e.key] = (e.elite || e.boss) ? true : Date.now() / 1000 + respawnSecs;
+    }
 
     const evs2 = [];
     CV.Quests.onKill(p, e.defId, evs2);
@@ -6900,7 +7009,7 @@ button:disabled { opacity: .4; }
      dell innesco). Rispetta la stessa persistenza killed degli altri. */
   E.spawnAmbushOne = function (s, worldState, playerLevel) {
     const killed = worldState.killed || {};
-    if (killed[s.key]) return null;
+    if (isDead(killed, s.key)) return null;
     const levelScale = Math.max(0, (playerLevel - 1) * 0.06);
     return E.makeEnemy(s.id, s.x, s.y, {
       key: s.key, hpMult: s.hpMult, dmgMult: s.dmgMult,
@@ -7368,6 +7477,7 @@ button:disabled { opacity: .4; }
   let alchPick = [];
   let shopTab = 'buy';
   let dlgNpc = null, dlgNode = null;
+  let debugTab = 'respawn';
 
   const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -7516,7 +7626,7 @@ button:disabled { opacity: .4; }
     const st = p.stats;
 
     return `
-      <div class="tabs" style="padding:0 0 8px;background:transparent">
+      <div class="tabs inv-filter-bar">
         ${filters.map(f => `<div class="tab${invTab === f[0] ? ' active' : ''}" data-act="filter" data-f="${f[0]}">${f[1]}</div>`).join('')}
       </div>
       <div class="stat-line"><span>Carico</span><span class="v ${st.encumbered ? 'neg' : ''}">${st.weight} / ${st.carry}</span></div>
@@ -7556,10 +7666,13 @@ button:disabled { opacity: .4; }
     return ing.fx.map((k, i) => P.knowsEffect(G.p, id, i) ? D.effects[k].name : '???').join(', ');
   }
 
-  function bonusLabel(k, v) {
-    const names = { maxHp: 'Vita', maxMp: 'Etere', maxSp: 'Vigore', armor: 'Armatura', damage: 'Danno', moveSpeed: 'Velocità', mpRegen: 'Rig. etere', spRegen: 'Rig. vigore', res: 'Resistenza' };
+  const BONUS_NAMES = { maxHp: 'Vita', maxMp: 'Etere', maxSp: 'Vigore', armor: 'Armatura', damage: 'Danno', moveSpeed: 'Velocità', mpRegen: 'Rig. etere', spRegen: 'Rig. vigore', res: 'Resistenza' };
+  function bonusFmt(k, v) {
     const pct = (k === 'damage' || k === 'moveSpeed' || k === 'res');
-    return (names[k] || k) + ' +' + (pct ? Math.round(v * 100) + '%' : v);
+    return pct ? Math.round(v * 100) + '%' : v;
+  }
+  function bonusLabel(k, v) {
+    return (BONUS_NAMES[k] || k) + ' +' + bonusFmt(k, v);
   }
 
   function viewItemDetail(it) {
@@ -7567,6 +7680,7 @@ button:disabled { opacity: .4; }
     if (!res) return '';
     const p = G.p;
     const eq = P.isEquipped(p, it.uid);
+    const cur = (res.slot && !eq) ? P.equipped(p, res.slot) : null;
     const acts = [];
     if (res.slot) acts.push(eq ? `<button data-act="unequip" data-slot="${res.slot}">Togli</button>` : `<button class="primary" data-act="equip" data-uid="${it.uid}">Equipaggia</button>`);
     if (res.type === 'potion') acts.push(`<button class="primary" data-act="drink" data-uid="${it.uid}">Bevi</button>`);
@@ -7575,15 +7689,20 @@ button:disabled { opacity: .4; }
 
     let stats = '';
     if (res.type === 'weapon') {
-      stats += line('Danno', res.dmg + (res.fire ? ' (+' + res.fire + ' fuoco)' : ''));
-      stats += line('Velocità', res.spd.toFixed(2) + '×');
-      stats += line('Portata', res.reach);
-      stats += line('Vigore per colpo', res.stamCost);
+      stats += lineCmp('Danno', res.dmg, cur ? cur.dmg : null);
+      if (res.fire || (cur && cur.fire)) stats += lineCmp('Danno da fuoco', res.fire || 0, cur ? (cur.fire || 0) : null);
+      stats += lineCmp('Velocità', res.spd, cur ? cur.spd : null, v => v.toFixed(2) + '×');
+      stats += lineCmp('Portata', res.reach, cur ? cur.reach : null);
+      stats += lineCmp('Vigore per colpo', res.stamCost, cur ? cur.stamCost : null, null, true);
     } else if (res.type === 'armor') {
-      stats += line('Armatura', res.armor);
-      stats += line('Resistenza', Math.round(res.res * 100) + '%');
+      stats += lineCmp('Armatura', res.armor, cur ? cur.armor : null);
+      stats += lineCmp('Resistenza', res.res, cur ? cur.res : null, v => Math.round(v * 100) + '%');
     } else if (res.type === 'trinket') {
-      for (const k in res.bonus) stats += line(bonusLabel(k, res.bonus[k]), '');
+      const curBonus = (cur && cur.bonus) || {};
+      const keys = new Set([...Object.keys(res.bonus || {}), ...Object.keys(curBonus)]);
+      for (const k of keys) {
+        stats += lineCmp(BONUS_NAMES[k] || k, (res.bonus && res.bonus[k]) || 0, cur ? (curBonus[k] || 0) : null, v => bonusFmt(k, v));
+      }
     } else if (res.type === 'potion') {
       for (const f of res.potion.fx) {
         const d = D.effects[f.key];
@@ -7596,12 +7715,13 @@ button:disabled { opacity: .4; }
       });
     }
     if (res.up > 0) stats += line('Tempra', '+' + res.up);
-    stats += line('Peso', res.weight.toFixed(1) + ' kg');
+    stats += lineCmp('Peso', res.weight, cur ? cur.weight : null, v => v.toFixed(1) + ' kg', true);
     stats += line('Valore', res.value + ' ⬤');
 
     return `<div class="detail">
       <h3 class="nm rar-${res.rar}">${esc(res.name)}</h3>
       ${res.flavor ? `<div class="flavor">« ${esc(res.flavor)} »</div>` : ''}
+      ${cur ? `<div class="hint">Confronto con l'equipaggiato: <b>${esc(cur.name)}</b></div>` : ''}
       ${stats}
       <div class="btn-row" style="margin-top:10px">${acts.join('')}</div>
     </div>`;
@@ -7609,6 +7729,19 @@ button:disabled { opacity: .4; }
 
   function line(k, v) {
     return `<div class="stat-line"><span>${esc(k)}</span><span class="v">${esc(v)}</span></div>`;
+  }
+
+  /* Confronta un valore con quello dell'oggetto equipaggiato, se c'è.
+     lowerBetter: true per statistiche dove un numero più basso è un vantaggio (peso, costo). */
+  function lineCmp(label, val, curVal, fmt, lowerBetter) {
+    fmt = fmt || (v => v);
+    const valTxt = fmt(val);
+    if (curVal == null || curVal === val) return line(label, valTxt);
+    const diff = val - curVal;
+    const better = lowerBetter ? diff < 0 : diff > 0;
+    const sign = diff > 0 ? '+' : '';
+    const deltaTxt = sign + fmt(diff);
+    return `<div class="stat-line"><span>${esc(label)}</span><span class="v">${esc(valTxt)} <span class="delta ${better ? 'pos' : 'neg'}">(${esc(deltaTxt)})</span></span></div>`;
   }
 
   /* ---------------- Abilità e talenti ---------------- */
@@ -7823,7 +7956,69 @@ button:disabled { opacity: .4; }
       <div class="btn-row" style="margin-top:8px">
         <button data-act="wipe" style="border-color:var(--blood);color:var(--blood)">Cancella salvataggio</button>
       </div>
-      <div class="hint">Uccisioni: ${G.p.kills} · Morti: ${G.p.deaths} · Tempo: ${Math.floor(G.p.playtime / 60)} min</div>`;
+      <div class="hint">Uccisioni: ${G.p.kills} · Morti: ${G.p.deaths} · Tempo: ${Math.floor(G.p.playtime / 60)} min</div>
+
+      <div class="sect">Debug</div>
+      <div class="seg" style="margin-bottom:10px">
+        ${debugSections.map(x => `<button class="${debugTab === x[0] ? 'on' : ''}" data-act="debugtab" data-t="${x[0]}">${x[1]}</button>`).join('')}
+      </div>
+      ${viewDebugPanel()}`;
+  }
+
+  /* ---------------- Debug ---------------- */
+  const debugSections = [['respawn', 'Respawn']];
+
+  function viewDebugPanel() {
+    if (debugTab === 'respawn') return viewDebugRespawn();
+    return '';
+  }
+
+  const DEBUG_TIMERS = [
+    ['enemyRespawnSeconds', 'Nemici comuni', 300],
+    ['chestRespawnSeconds', 'Forzieri', 600],
+    ['shrineRespawnSeconds', 'Santuari', 600]
+  ];
+
+  function viewDebugRespawn() {
+    const dbg = G.settings.debug || (G.settings.debug = {});
+    const inZone = !!G.zone && !G.zone.def.safe;
+
+    const rows = DEBUG_TIMERS.map(([key, label, def]) => {
+      const v = dbg[key] != null ? dbg[key] : def;
+      return `<div class="opt-row">
+        <div class="lbl">${label}</div>
+        <input class="slider" type="number" min="0" step="5" value="${v}" data-act="dbgsecs" data-key="${key}" style="width:80px">
+        <span style="margin-left:8px;color:var(--muted)">sec · ${(v / 60).toFixed(1)} min</span>
+      </div>`;
+    }).join('');
+
+    return `
+      <div class="opt-row">
+        <div class="lbl">Tempo di respawn
+          <small>Secondi reali da quando lo usi/uccidi/svuoti. I nemici unici e i boss restano
+          permanenti per ora: li tratteremo a parte più avanti.</small>
+        </div>
+      </div>
+      ${rows}
+
+      <div class="opt-row" style="margin-top:10px">
+        <div class="lbl">Respawn forzato — zona corrente
+          <small>Ricostruisce subito i contenuti scelti, senza aspettare il timer.</small>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button data-act="dbgforcerespawn" data-scope="all" ${inZone ? '' : 'disabled'}>Tutto (esclusi boss)</button>
+      </div>
+      <div class="btn-row" style="margin-top:6px">
+        <button data-act="dbgforcerespawn" data-scope="common" ${inZone ? '' : 'disabled'}>Nemici comuni</button>
+        <button data-act="dbgforcerespawn" data-scope="chests" ${inZone ? '' : 'disabled'}>Forzieri</button>
+        <button data-act="dbgforcerespawn" data-scope="shrines" ${inZone ? '' : 'disabled'}>Santuari</button>
+      </div>
+      <div class="btn-row" style="margin-top:6px">
+        <button data-act="dbgforcerespawn" data-scope="epic" ${inZone ? '' : 'disabled'}>Epici/Boss</button>
+      </div>
+      ${inZone ? '<div class="hint">Attenzione: i nemici unici rigenerati possono far riottenere il loro drop di missione.</div>'
+                : '<div class="hint">Non disponibile: sei fuori partita o in una zona sicura (senza nemici).</div>'}`;
   }
 
   /* ================================================================
@@ -8084,6 +8279,11 @@ button:disabled { opacity: .4; }
         break;
       }
       case 'drop': {
+        if (t.dataset.confirm !== '1') {
+          t.dataset.confirm = '1';
+          t.textContent = 'Sicuro? Tocca ancora';
+          break;
+        }
         const it = P.findUid(G.p, t.dataset.uid);
         if (it) { G.dropItemToGround(it); toast('Gettato'); }
         invSel = null; render();
@@ -8135,6 +8335,16 @@ button:disabled { opacity: .4; }
         break;
       }
       case 'respawn': G.respawn(); break;
+
+      /* Debug */
+      case 'debugtab': debugTab = t.dataset.t; render(); break;
+      case 'dbgforcerespawn': {
+        const labels = { all: 'Tutto (esclusi boss)', common: 'Nemici comuni', chests: 'Forzieri', shrines: 'Santuari', epic: 'Epici/Boss' };
+        G.debugForceRespawn(t.dataset.scope);
+        toast('Rigenerato: ' + (labels[t.dataset.scope] || t.dataset.scope), 'gold');
+        render();
+        break;
+      }
 
       /* Dialogo */
       case 'dlgopt': {
@@ -8226,9 +8436,14 @@ button:disabled { opacity: .4; }
   /* Slider del volume */
   document.addEventListener('input', (ev) => {
     const t = ev.target;
-    if (t && t.dataset && t.dataset.act === 'volume') {
+    if (!t || !t.dataset) return;
+    if (t.dataset.act === 'volume') {
       G.settings.volume = parseInt(t.value, 10) / 100;
       G.applyAudioSettings();
+      G.saveSettings();
+    } else if (t.dataset.act === 'dbgsecs') {
+      const v = Math.max(0, parseInt(t.value, 10) || 0);
+      (G.settings.debug || (G.settings.debug = {}))[t.dataset.key] = v;
       G.saveSettings();
     }
   });
@@ -8305,6 +8520,8 @@ button:disabled { opacity: .4; }
   const SET_KEY = 'cindervale.settings.v1';
   const ENTRY_SAFE_RADIUS = 280;
   const ENTRY_ORIENT_SECONDS = 2;
+  const CHEST_RESPAWN_SECONDS = 600;
+  const SHRINE_RESPAWN_SECONDS = 600;
 
   /* Stato globale della partita */
   const G = {
@@ -8317,7 +8534,10 @@ button:disabled { opacity: .4; }
     interactTarget: null, interactLabel: '',
     autosaveT: 0, tipT: 12,
     fpsAcc: 0, fpsFrames: 0, lastFps: 60, lowFpsRun: 0, autoQuality: null,
-    settings: { scheme: 'auto', volume: 0.6, music: true, blockMode: 'auto', quality: 'auto' }
+    settings: {
+      scheme: 'auto', volume: 0.6, music: true, blockMode: 'auto', quality: 'auto',
+      debug: { enemyRespawnSeconds: 300, chestRespawnSeconds: 600, shrineRespawnSeconds: 600 }
+    }
   };
 
   /* ================= AVVIO ================= */
@@ -8385,13 +8605,16 @@ button:disabled { opacity: .4; }
     G.world = G.worldAll.zones[zoneId];
     if (!G.world.shrines) G.world.shrines = {};
 
-    /* Applica ciò che è già successo qui */
-    for (const c of z.chests) if (G.world.chests[c.key]) c.open = true;
+    /* Applica ciò che è già successo qui. Forzieri e santuari, come i nemici
+       comuni, restano "usati" solo fino a un timestamp: passato quello,
+       tornano disponibili da soli al prossimo ingresso in zona. */
+    const nowT = Date.now() / 1000;
+    for (const c of z.chests) if (G.world.chests[c.key] > nowT) c.open = true;
     for (const n of z.nodes) {
       const t = G.world.nodes[n.key];
-      if (t) n.spent = Math.max(0, t - Date.now() / 1000);
+      if (t) n.spent = Math.max(0, t - nowT);
     }
-    for (const sh of z.shrines) if (G.world.shrines[sh.key]) sh.used = true;
+    for (const sh of z.shrines) if (G.world.shrines[sh.key] > nowT) sh.used = true;
 
     G.enemies = z.def.safe ? [] : E.spawnZone(z, G.world, G.p.level, {
       x: pos.x, y: pos.y, radius: ENTRY_SAFE_RADIUS
@@ -8917,7 +9140,7 @@ button:disabled { opacity: .4; }
       case 'chest': {
         const c = t.ref;
         c.open = true;
-        G.world.chests[c.key] = true;
+        G.world.chests[c.key] = Date.now() / 1000 + debugSeconds('chestRespawnSeconds', CHEST_RESPAWN_SECONDS);
         CV.Audio.play('chest');
         const items = CV.Loot.fromChest(c.table, G.rng);
         for (const it of items) {
@@ -8948,7 +9171,7 @@ button:disabled { opacity: .4; }
         const sh = t.ref;
         if (sh.used) { CV.UI.toast('Il santuario è già stato onorato.'); break; }
         sh.used = true;
-        G.world.shrines[sh.key] = true;
+        G.world.shrines[sh.key] = Date.now() / 1000 + debugSeconds('shrineRespawnSeconds', SHRINE_RESPAWN_SECONDS);
         const boons = ['fury', 'stone', 'swift', 'regen'];
         const key = G.rng.pick(boons);
         P.applyEffect(p, key, D.effects[key].base, D.effects[key].dur);
@@ -9187,6 +9410,36 @@ button:disabled { opacity: .4; }
   G.refreshMusic = refreshMusic;
   G.applyQuality = applyQuality;
   G.respawn = respawn;
+
+  /* ---------------- Debug ---------------- */
+  /* Valore di debug se impostato dal menu, altrimenti il default di bilanciamento.
+     Esposta su G perché entities.js la usa (killEnemy riceve G). */
+  function debugSeconds(key, fallback) {
+    const d = G.settings.debug;
+    return (d && d[key] != null) ? d[key] : fallback;
+  }
+  G.debugSeconds = debugSeconds;
+
+  /* Forza il respawn dei contenuti della zona corrente senza aspettare il timer.
+     scope: 'common' (nemici comuni) | 'epic' (unici/boss) | 'chests' | 'shrines'
+     | 'all' (comuni + forzieri + santuari, MAI i boss: quelli restano una
+     scelta a parte finché non decidiamo diversamente per la narrativa). */
+  function debugForceRespawn(scope) {
+    if (!G.zone || !G.world || G.zone.def.safe) return;
+    if (scope === 'common' || scope === 'epic' || scope === 'all') {
+      G.enemies = E.forceRespawn(G.zone, G.world, G.p.level, {
+        x: G.pe.x, y: G.pe.y, radius: ENTRY_SAFE_RADIUS
+      }, scope === 'all' ? 'common' : scope);
+    }
+    if (scope === 'chests' || scope === 'all') {
+      for (const c of G.zone.chests) { c.open = false; delete G.world.chests[c.key]; }
+    }
+    if (scope === 'shrines' || scope === 'all') {
+      for (const sh of G.zone.shrines) { sh.used = false; delete G.world.shrines[sh.key]; }
+    }
+  }
+  G.debugForceRespawn = debugForceRespawn;
+
   /* Utili anche dalla console del browser per provare il gioco */
   G.enterZone = enterZone;
   G.doInteract = doInteract;

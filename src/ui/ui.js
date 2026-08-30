@@ -208,10 +208,13 @@
     return ing.fx.map((k, i) => P.knowsEffect(G.p, id, i) ? D.effects[k].name : '???').join(', ');
   }
 
-  function bonusLabel(k, v) {
-    const names = { maxHp: 'Vita', maxMp: 'Etere', maxSp: 'Vigore', armor: 'Armatura', damage: 'Danno', moveSpeed: 'Velocità', mpRegen: 'Rig. etere', spRegen: 'Rig. vigore', res: 'Resistenza' };
+  const BONUS_NAMES = { maxHp: 'Vita', maxMp: 'Etere', maxSp: 'Vigore', armor: 'Armatura', damage: 'Danno', moveSpeed: 'Velocità', mpRegen: 'Rig. etere', spRegen: 'Rig. vigore', res: 'Resistenza' };
+  function bonusFmt(k, v) {
     const pct = (k === 'damage' || k === 'moveSpeed' || k === 'res');
-    return (names[k] || k) + ' +' + (pct ? Math.round(v * 100) + '%' : v);
+    return pct ? Math.round(v * 100) + '%' : v;
+  }
+  function bonusLabel(k, v) {
+    return (BONUS_NAMES[k] || k) + ' +' + bonusFmt(k, v);
   }
 
   function viewItemDetail(it) {
@@ -219,6 +222,7 @@
     if (!res) return '';
     const p = G.p;
     const eq = P.isEquipped(p, it.uid);
+    const cur = (res.slot && !eq) ? P.equipped(p, res.slot) : null;
     const acts = [];
     if (res.slot) acts.push(eq ? `<button data-act="unequip" data-slot="${res.slot}">Togli</button>` : `<button class="primary" data-act="equip" data-uid="${it.uid}">Equipaggia</button>`);
     if (res.type === 'potion') acts.push(`<button class="primary" data-act="drink" data-uid="${it.uid}">Bevi</button>`);
@@ -227,15 +231,20 @@
 
     let stats = '';
     if (res.type === 'weapon') {
-      stats += line('Danno', res.dmg + (res.fire ? ' (+' + res.fire + ' fuoco)' : ''));
-      stats += line('Velocità', res.spd.toFixed(2) + '×');
-      stats += line('Portata', res.reach);
-      stats += line('Vigore per colpo', res.stamCost);
+      stats += lineCmp('Danno', res.dmg, cur ? cur.dmg : null);
+      if (res.fire || (cur && cur.fire)) stats += lineCmp('Danno da fuoco', res.fire || 0, cur ? (cur.fire || 0) : null);
+      stats += lineCmp('Velocità', res.spd, cur ? cur.spd : null, v => v.toFixed(2) + '×');
+      stats += lineCmp('Portata', res.reach, cur ? cur.reach : null);
+      stats += lineCmp('Vigore per colpo', res.stamCost, cur ? cur.stamCost : null, null, true);
     } else if (res.type === 'armor') {
-      stats += line('Armatura', res.armor);
-      stats += line('Resistenza', Math.round(res.res * 100) + '%');
+      stats += lineCmp('Armatura', res.armor, cur ? cur.armor : null);
+      stats += lineCmp('Resistenza', res.res, cur ? cur.res : null, v => Math.round(v * 100) + '%');
     } else if (res.type === 'trinket') {
-      for (const k in res.bonus) stats += line(bonusLabel(k, res.bonus[k]), '');
+      const curBonus = (cur && cur.bonus) || {};
+      const keys = new Set([...Object.keys(res.bonus || {}), ...Object.keys(curBonus)]);
+      for (const k of keys) {
+        stats += lineCmp(BONUS_NAMES[k] || k, (res.bonus && res.bonus[k]) || 0, cur ? (curBonus[k] || 0) : null, v => bonusFmt(k, v));
+      }
     } else if (res.type === 'potion') {
       for (const f of res.potion.fx) {
         const d = D.effects[f.key];
@@ -248,12 +257,13 @@
       });
     }
     if (res.up > 0) stats += line('Tempra', '+' + res.up);
-    stats += line('Peso', res.weight.toFixed(1) + ' kg');
+    stats += lineCmp('Peso', res.weight, cur ? cur.weight : null, v => v.toFixed(1) + ' kg', true);
     stats += line('Valore', res.value + ' ⬤');
 
     return `<div class="detail">
       <h3 class="nm rar-${res.rar}">${esc(res.name)}</h3>
       ${res.flavor ? `<div class="flavor">« ${esc(res.flavor)} »</div>` : ''}
+      ${cur ? `<div class="hint">Confronto con l'equipaggiato: <b>${esc(cur.name)}</b></div>` : ''}
       ${stats}
       <div class="btn-row" style="margin-top:10px">${acts.join('')}</div>
     </div>`;
@@ -261,6 +271,19 @@
 
   function line(k, v) {
     return `<div class="stat-line"><span>${esc(k)}</span><span class="v">${esc(v)}</span></div>`;
+  }
+
+  /* Confronta un valore con quello dell'oggetto equipaggiato, se c'è.
+     lowerBetter: true per statistiche dove un numero più basso è un vantaggio (peso, costo). */
+  function lineCmp(label, val, curVal, fmt, lowerBetter) {
+    fmt = fmt || (v => v);
+    const valTxt = fmt(val);
+    if (curVal == null || curVal === val) return line(label, valTxt);
+    const diff = val - curVal;
+    const better = lowerBetter ? diff < 0 : diff > 0;
+    const sign = diff > 0 ? '+' : '';
+    const deltaTxt = sign + fmt(diff);
+    return `<div class="stat-line"><span>${esc(label)}</span><span class="v">${esc(valTxt)} <span class="delta ${better ? 'pos' : 'neg'}">(${esc(deltaTxt)})</span></span></div>`;
   }
 
   /* ---------------- Abilità e talenti ---------------- */
@@ -798,6 +821,11 @@
         break;
       }
       case 'drop': {
+        if (t.dataset.confirm !== '1') {
+          t.dataset.confirm = '1';
+          t.textContent = 'Sicuro? Tocca ancora';
+          break;
+        }
         const it = P.findUid(G.p, t.dataset.uid);
         if (it) { G.dropItemToGround(it); toast('Gettato'); }
         invSel = null; render();

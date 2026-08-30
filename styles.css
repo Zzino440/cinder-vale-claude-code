@@ -145,6 +145,9 @@ button:disabled { opacity: .4; }
 .stat-line { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; font-family: var(--mono); }
 .stat-line .v { color: var(--gold); }
 .stat-line .v.neg { color: var(--blood); }
+.stat-line .v .delta { font-size: 10px; margin-left: 4px; }
+.stat-line .v .delta.pos { color: var(--stam); }
+.stat-line .v .delta.neg { color: var(--blood); }
 
 /* ---------- Barre ---------- */
 .bar { height: 7px; background: var(--ash-1); border: 1px solid var(--ash-3); border-radius: 4px; overflow: hidden; margin-top: 4px; }
