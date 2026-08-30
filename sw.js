@@ -1,5 +1,5 @@
 /* Service worker: rende il gioco giocabile offline dopo la prima apertura. */
-const CACHE = 'cindervale-v3-combat-hd';
+const CACHE = 'cindervale-v5-directional-combat';
 const ASSETS = [
   './',
   './index.html',
@@ -21,10 +21,14 @@ const ASSETS = [
   './src/game/main.js',
   './assets/hd/runtime/ashford-house.png',
   './assets/hd/runtime/traveler-atlas.png',
+  './assets/hd/runtime/traveler-combat-directions-atlas.png',
   './assets/hd/runtime/traveler-attack-atlas.png',
   './assets/hd/runtime/traveler-defense-atlas.png',
   './assets/hd/runtime/traveler-mobility-magic-atlas.png',
   './assets/hd/runtime/traveler-defeat-atlas.png',
+  './assets/hd/runtime/vegetation-trees-atlas.png',
+  './assets/hd/runtime/vegetation-ground-atlas.png',
+  './assets/hd/runtime/vegetation-stumps-atlas.png',
   './assets/hd/runtime/hearth-shrine.png',
   './assets/hd/runtime/handcart.png',
   './assets/hd/runtime/woodpile.png',

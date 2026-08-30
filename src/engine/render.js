@@ -648,7 +648,14 @@
       if (sh <= 0) break;
       const t = 1 - (sy + sh * 0.5) / h;   /* 1 in cima, 0 alla base */
       const off = Math.round(s * amount * t * t);
-      b.drawImage(img, 0, sy, img.width, sh, dx + off, dy + sy, img.width, sh);
+      if (img.hd) {
+        const srcY = img.sy + Math.floor(sy / h * img.sh);
+        const srcEnd = img.sy + Math.ceil((sy + sh) / h * img.sh);
+        b.drawImage(img.source, img.sx, srcY, img.sw, Math.max(1, srcEnd - srcY),
+          dx + off, dy + sy, img.width, sh);
+      } else {
+        b.drawImage(img, 0, sy, img.width, sh, dx + off, dy + sy, img.width, sh);
+      }
     }
   }
 
@@ -956,21 +963,32 @@
 
     const direction = pe.face === 3 ? 'up' : (pe.face === 0 ? 'down' : 'side');
     let hdSpr = null;
-    if (pe.parryT > 0) hdSpr = A.hdCombatFrame('defense', 2);
-    else if (pe.blocking) hdSpr = A.hdCombatFrame('defense', pe.blockT < 0.12 ? 0 : 1);
+    if (pe.parryT > 0) hdSpr = A.hdDirectionalCombatFrame('defense', pe.aimAngle, 2);
+    else if (pe.blocking) {
+      hdSpr = A.hdDirectionalCombatFrame('defense', pe.aimAngle, pe.blockT < 0.12 ? 0 : 1);
+    }
     else if (pe.state === 'hurt' || pe.flash > 0) hdSpr = A.hdCombatFrame('defense', 3);
     else if (pe.state === 'dodge') {
       hdSpr = A.hdCombatFrame('dodge', Math.min(2, Math.floor(pe.stateT / 0.30 * 3)));
     } else if (pe.state === 'attack') {
       const dur = pe.swingDur || 0.26;
-      hdSpr = A.hdCombatFrame('attack', Math.min(3, Math.floor(pe.stateT / dur * 4)));
-    } else if (pe.state === 'recover') hdSpr = A.hdCombatFrame('attack', 3);
+      hdSpr = A.hdDirectionalCombatFrame(
+        'attack', pe.attackDir == null ? pe.aimAngle : pe.attackDir,
+        Math.min(3, Math.floor(pe.stateT / dur * 4))
+      );
+    } else if (pe.state === 'recover') {
+      hdSpr = A.hdDirectionalCombatFrame(
+        'attack', pe.attackDir == null ? pe.aimAngle : pe.attackDir, 3
+      );
+    }
     else if (pe.castT > 0) {
       hdSpr = A.hdCombatFrame('cast', Math.min(2, Math.floor((0.22 - pe.castT) / 0.22 * 3)));
     }
     hdSpr = hdSpr || A.hdHeroFrame(direction, frame);
     const spr = hdSpr || (pe.flash > 0 ? A.flashOf(name, null, '#ffffff') : A.sprite(name));
-    const flip = pe.face === 1;
+    /* Il fotogramma laterale sorgente guarda a sinistra: si specchia solo
+       quando il giocatore procede verso destra. */
+    const flip = !(hdSpr && hdSpr.directional) && pe.face === 2;
     const heroW = hdSpr ? hdSpr.width : 20, heroH = hdSpr ? hdSpr.height : 23;
     const dy = y - heroH + 4;
     if (pe.iframes > 0 && pe.state === 'dodge') b.globalAlpha = 0.6;

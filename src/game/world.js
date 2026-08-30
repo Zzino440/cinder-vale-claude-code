@@ -137,7 +137,7 @@
     borderWalls(z, 'rock_wall');
     windingPath(z, rng, z.w - 4, 32, 32, 4, 'path');
     /* Bosco fitto: la densità cresce lontano dai sentieri */
-    scatterNature(z, rng, 150, 70, [0, 1, 2], 0.9);
+    scatterNature(z, rng, 150, 70, [0, 2, 3], 0.9);
     scatterRocks(z, rng, 16);
   }
 
@@ -283,7 +283,7 @@
       const edge = Math.min(tx, ty, z.w - tx, z.h - ty) / (Math.min(z.w, z.h) / 2);
       if (rng.next() > (1 - edge) * edgeBias + 0.22) continue;
       const v = rng.pick(variants);
-      const img = A.tree(v);
+      const img = A.hdTree(v) || A.tree(v);
       z.props.push({ kind: 'tree', img: img, sway: v >= 2 ? 0.35 : 0.6, x: tx * T + 8, y: ty * T + 16, ox: img.width / 2, oy: img.height,
         col: { x: tx * T + 4, y: ty * T + 6, w: 9, h: 9 } });
       z.solid[i] = 1; busy[i] = 1;
@@ -296,7 +296,8 @@
       if (z.solid[i] || busy[i]) continue;
       const key = A.TILE_KEYS[z.tiles[i]];
       if (key === 'path' || key === 'water' || key === 'lava') continue;
-      const img = A.bush(rng.int(0, 1));
+      const bushVariant = rng.int(0, 1);
+      const img = A.hdVegetation('bush', bushVariant) || A.bush(bushVariant);
       z.props.push({ kind: 'bush', img: img, sway: 0.85, x: tx * T + 8, y: ty * T + 14, ox: img.width / 2, oy: img.height, col: null });
       busy[i] = 1;
       placed++;
@@ -322,12 +323,12 @@
      `sway` = quanto l'oggetto ondeggia nel vento (0 = rigido).
      `solid` = se blocca il passaggio. */
   const DECOR = {
-    tallgrass:  { make: (v) => A.tallgrass(v), n: 3, oy: 13, sway: 1.00, solid: false },
-    flowers:    { make: (v) => A.flowers(v),   n: 4, oy: 11, sway: 0.70, solid: false },
-    mushrooms:  { make: (v) => A.mushrooms(v), n: 3, oy: 13, sway: 0.25, solid: false, glow: true },
+    tallgrass:  { make: (v) => A.hdVegetation('tallgrass', v) || A.tallgrass(v), n: 3, oy: 13, sway: 1.00, solid: false },
+    flowers:    { make: (v) => A.hdVegetation('flowers', v) || A.flowers(v),     n: 4, oy: 11, sway: 0.70, solid: false },
+    mushrooms:  { make: (v) => A.hdVegetation('mushrooms', v) || A.mushrooms(v), n: 3, oy: 13, sway: 0.25, solid: false, glow: true },
     boneheap:   { make: (v) => A.boneheap(v),  n: 2, oy: 13, sway: 0,    solid: false },
     cobweb:     { make: (v) => A.cobweb(v),    n: 2, oy: 14, sway: 0.35, solid: false },
-    stump:      { make: (v) => A.stump(v),     n: 2, oy: 15, sway: 0,    solid: true, cw: 11, ch: 6 },
+    stump:      { make: (v) => A.hdVegetation('stump', v) || A.stump(v), n: 3, oy: 15, sway: 0, solid: true, cw: 11, ch: 6 },
     barrel:     { make: () => A.hdProp('barrel') || A.barrel(), n: 1, oy: 17, sway: 0, solid: true, cw: 10, ch: 6 },
     crate:      { make: () => A.hdProp('crate') || A.crate(),   n: 1, oy: 15, sway: 0, solid: true, cw: 12, ch: 6 },
     gravestone: { make: (v) => A.gravestone(v),n: 2, oy: 17, sway: 0,    solid: true, cw: 9,  ch: 5 },
@@ -380,7 +381,7 @@
 
         const v = rng.int(0, def.n - 1);
         const img = def.make(v);
-        const oy = def.oy || img.height;
+        const oy = img.hd ? img.height : (def.oy || img.height);
         const o = {
           kind: kind, img: img, sway: def.sway,
           x: tx * T + 8, y: ty * T + Math.min(16, oy),

@@ -194,6 +194,33 @@ def build_combat() -> None:
         sheet = Image.open(SOURCE / source_name)
         fit_frame_group(sheet, cols, rows, frame_size).save(OUT / output_name, optimize=True)
 
+    # Otto direzioni reali, senza specchiare spada e scudo. Ogni sorgente e'
+    # una griglia 4x2: quattro fotogrammi d'attacco sopra, tre di difesa sotto.
+    directions = ("e", "se", "s", "sw", "w", "nw", "n", "ne")
+    frame_w, frame_h = 96, 64
+    directional = Image.new(
+        "RGBA", (frame_w * 7, frame_h * len(directions)), (0, 0, 0, 0)
+    )
+    for row, direction in enumerate(directions):
+        source = Image.open(SOURCE / f"traveler-combat-{direction}-v3.png")
+        # ImageGen puo' incorporare il motivo a scacchi nella bitmap: viene
+        # rimosso prima di cercare il contorno effettivo del personaggio.
+        source = remove_light_background(source)
+        normalized = fit_frame_group(source, 4, 2, (frame_w, frame_h), alpha_threshold=24)
+        for col in range(4):
+            frame = normalized.crop(
+                (col * frame_w, 0, (col + 1) * frame_w, frame_h)
+            )
+            directional.alpha_composite(frame, (col * frame_w, row * frame_h))
+        for col in range(3):
+            frame = normalized.crop(
+                (col * frame_w, frame_h, (col + 1) * frame_w, frame_h * 2)
+            )
+            directional.alpha_composite(
+                frame, ((col + 4) * frame_w, row * frame_h)
+            )
+    directional.save(OUT / "traveler-combat-directions-atlas.png", optimize=True)
+
 
 def build_vegetation() -> None:
     trees = Image.open(SOURCE / "vegetation-trees-v2.png")
@@ -203,6 +230,10 @@ def build_vegetation() -> None:
     ground = Image.open(SOURCE / "vegetation-ground-v2.png")
     fit_frame_group(ground, 3, 2, (64, 64), alpha_threshold=32).save(
         OUT / "vegetation-ground-atlas.png", optimize=True
+    )
+    stumps = Image.open(SOURCE / "vegetation-stumps-v2.png")
+    fit_frame_group(stumps, 3, 1, (72, 64), alpha_threshold=32).save(
+        OUT / "vegetation-stumps-atlas.png", optimize=True
     )
 
 

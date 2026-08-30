@@ -14,10 +14,14 @@
   const HD_PATHS = {
     house: 'assets/hd/runtime/ashford-house.png',
     hero: 'assets/hd/runtime/traveler-atlas.png',
+    combatDirections: 'assets/hd/runtime/traveler-combat-directions-atlas.png',
     attack: 'assets/hd/runtime/traveler-attack-atlas.png',
     defense: 'assets/hd/runtime/traveler-defense-atlas.png',
     actions: 'assets/hd/runtime/traveler-mobility-magic-atlas.png',
     defeat: 'assets/hd/runtime/traveler-defeat-atlas.png',
+    trees: 'assets/hd/runtime/vegetation-trees-atlas.png',
+    vegetation: 'assets/hd/runtime/vegetation-ground-atlas.png',
+    stumps: 'assets/hd/runtime/vegetation-stumps-atlas.png',
     shrine: 'assets/hd/runtime/hearth-shrine.png',
     handcart: 'assets/hd/runtime/handcart.png',
     woodpile: 'assets/hd/runtime/woodpile.png',
@@ -63,11 +67,11 @@
   }
   function hdCombatFrame(kind, frame) {
     const specs = {
-      attack: { key: 'attack', cols: 4, fw: 96, fh: 64, width: 48, height: 32, row: 0 },
-      defense: { key: 'defense', cols: 4, fw: 80, fh: 64, width: 40, height: 32, row: 0 },
-      dodge: { key: 'actions', cols: 3, fw: 80, fh: 64, width: 40, height: 32, row: 0 },
-      cast: { key: 'actions', cols: 3, fw: 80, fh: 64, width: 40, height: 32, row: 1 },
-      defeat: { key: 'defeat', cols: 3, fw: 96, fh: 64, width: 48, height: 32, row: 0 }
+      attack: { key: 'attack', cols: 4, fw: 96, fh: 64, width: 35, height: 23, row: 0 },
+      defense: { key: 'defense', cols: 4, fw: 80, fh: 64, width: 29, height: 23, row: 0 },
+      dodge: { key: 'actions', cols: 3, fw: 80, fh: 64, width: 29, height: 23, row: 0 },
+      cast: { key: 'actions', cols: 3, fw: 80, fh: 64, width: 29, height: 23, row: 1 },
+      defeat: { key: 'defeat', cols: 3, fw: 96, fh: 64, width: 35, height: 23, row: 0 }
     };
     const spec = specs[kind];
     if (!spec || !HD[spec.key]) return null;
@@ -76,6 +80,41 @@
       hd: true, source: HD[spec.key], sx: index * spec.fw, sy: spec.row * spec.fh,
       sw: spec.fw, sh: spec.fh, width: spec.width, height: spec.height
     };
+  }
+  function hdDirectionalCombatFrame(kind, angle, frame) {
+    if (!HD.combatDirections) return hdCombatFrame(kind, frame);
+    const count = kind === 'attack' ? 4 : (kind === 'defense' ? 3 : 0);
+    if (!count) return hdCombatFrame(kind, frame);
+    /* Le righe dell'atlante seguono l'angolo del mondo: est, sud-est,
+       sud, sud-ovest, ovest, nord-ovest, nord, nord-est. */
+    const octant = ((Math.round((angle || 0) / (Math.PI / 4)) % 8) + 8) % 8;
+    const index = Math.max(0, Math.min(count - 1, frame | 0));
+    const col = kind === 'attack' ? index : index + 4;
+    return {
+      hd: true, directional: true, source: HD.combatDirections,
+      sx: col * 96, sy: octant * 64, sw: 96, sh: 64,
+      width: 35, height: 23
+    };
+  }
+  function hdTree(variant) {
+    if (!HD.trees) return null;
+    const col = Math.abs(variant | 0) % 4;
+    return { hd: true, source: HD.trees, sx: col * 128, sy: 0, sw: 128, sh: 144, width: 64, height: 72 };
+  }
+  function hdVegetation(kind, variant) {
+    if (kind === 'stump') {
+      if (!HD.stumps) return null;
+      const index = Math.abs(variant | 0) % 3;
+      return { hd: true, source: HD.stumps, sx: index * 72, sy: 0, sw: 72, sh: 64, width: 32, height: 28 };
+    }
+    if (!HD.vegetation) return null;
+    let col = 0, row = 0;
+    if (kind === 'bush') col = Math.abs(variant | 0) % 2;
+    else if (kind === 'tallgrass') { col = variant % 2 ? 0 : 2; row = variant % 2 ? 1 : 0; }
+    else if (kind === 'flowers') { col = 1; row = 1; }
+    else if (kind === 'mushrooms') { col = 2; row = 1; }
+    else return null;
+    return { hd: true, source: HD.vegetation, sx: col * 64, sy: row * 64, sw: 64, sh: 64, width: 26, height: 26 };
   }
   function hdTile(key, tx, ty) {
     if (!HD.terrain) return null;
@@ -1849,6 +1888,7 @@
     tree, rock, bush, house, hearthShrine, handcart, woodpile, pillar, circle, iconFor, makeCanvas,
     stump, tallgrass, flowers, mushrooms, boneheap, barrel, crate,
     gravestone, fence, stalagmite, cobweb, banner,
-    loadHdAssets, hdReady, hdHouse, hdProp, hdHeroFrame, hdCombatFrame, hdTile
+    loadHdAssets, hdReady, hdHouse, hdProp, hdHeroFrame, hdCombatFrame, hdDirectionalCombatFrame,
+    hdTree, hdVegetation, hdTile
   };
 })(typeof window !== 'undefined' ? window : globalThis);
