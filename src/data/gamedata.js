@@ -275,4 +275,118 @@
     for (const k in D.armors) if (D.armors[k].tier <= tier) out.push(k);
     return out;
   };
+
+  /* ---------------- SITI: luoghi generati proceduralmente ----------------
+     Un sito è una scena: un pezzo di terreno modificato, dell'arredo, una
+     composizione di nemici e una ricompensa. È ciò che trasforma una zona
+     grande in una zona con qualcosa dentro.
+
+     I nemici si dichiarano per RUOLO, non per id: la mappa ruolo -> nemico
+     sta in ogni zona (`roles` in story.js). Così un accampamento è di banditi
+     nella brughiera e di redivivi nella miniera senza duplicare il sito, e i
+     nemici nuovi si agganciano cambiando solo la mappa.
+
+     Coordinate dx/dy in tile, relative al centro del sito.
+     carve.mode: 'clear' spiana un disco | 'ring' rovina con muri parziali |
+                 'none' non tocca il terreno (per le sacche già scavate).      */
+  D.sites = {
+    bandit_camp: {
+      id: 'bandit_camp', name: 'Accampamento', r: 5, weight: 3,
+      biomes: ['moor', 'forest'],
+      needs: ['melee', 'ranged'],
+      carve: { mode: 'clear', key: 'dirt' },
+      props: [
+        { kind: 'campfire', dx: 0, dy: 0, rest: true },
+        { kind: 'crate', dx: -3, dy: 1 }, { kind: 'barrel', dx: 3, dy: -1 },
+        { kind: 'fence', dx: -1, dy: -3 }, { kind: 'fence', dx: 1, dy: -3 },
+        { kind: 'boneheap', dx: 2, dy: 3 }
+      ],
+      spawns: [
+        { role: 'melee', dx: -2, dy: 2 },
+        { role: 'melee', dx: 3, dy: 1 },
+        { role: 'ranged', dx: 0, dy: -3 }
+      ],
+      chests: [{ dx: -3, dy: -2, table: 'common' }]
+    },
+
+    den: {
+      id: 'den', name: 'Tana', r: 4, weight: 3,
+      biomes: ['moor', 'forest', 'cave'],
+      needs: ['beast'],
+      carve: { mode: 'clear', key: 'dirt' },
+      props: [
+        { kind: 'boneheap', dx: 0, dy: 0 }, { kind: 'boneheap', dx: -2, dy: 1 },
+        { kind: 'stump', dx: 2, dy: -2 }
+      ],
+      /* sightMult basso: la bestia dorme e si sveglia solo da vicino.
+         Chi guarda prima di entrare può scegliere se e come ingaggiare. */
+      spawns: [
+        { role: 'beast', dx: -1, dy: -1, sightMult: 0.45 },
+        { role: 'beast', dx: 2, dy: 0, sightMult: 0.45 },
+        { role: 'beast', dx: 0, dy: 2, sightMult: 0.45 }
+      ],
+      nodes: [{ type: 'bones', dx: 1, dy: -2 }]
+    },
+
+    ruin: {
+      id: 'ruin', name: 'Rovina', r: 5, weight: 2,
+      biomes: ['moor', 'forest', 'keep'],
+      needs: ['bruiser'],
+      /* I muri parziali sono copertura vera: contro i tiratori cambia
+         il modo in cui ci si avvicina. */
+      carve: { mode: 'ring', key: 'stone', gaps: 0.45 },
+      props: [
+        { kind: 'gravestone', dx: -2, dy: 2 }, { kind: 'boneheap', dx: 2, dy: 2 }
+      ],
+      spawns: [{ role: 'bruiser', dx: 0, dy: -1, hpMult: 1.5 }],
+      chests: [{ dx: 0, dy: 1, table: 'common' }]
+    },
+
+    shrine: {
+      id: 'shrine', name: 'Santuario', r: 3, weight: 2,
+      biomes: ['moor', 'forest', 'cave', 'keep'],
+      needs: [],
+      /* Nessun nemico: esplorare deve qualche volta pagare senza combattere. */
+      carve: { mode: 'clear', key: 'stone' },
+      props: [{ kind: 'pillar', dx: -2, dy: 0 }, { kind: 'pillar', dx: 2, dy: 0 }],
+      shrine: { dx: 0, dy: 0 },
+      spawns: []
+    },
+
+    ambush: {
+      id: 'ambush', name: 'Imboscata', r: 4, weight: 2,
+      biomes: ['moor', 'forest', 'cave'],
+      needs: ['melee', 'ranged'],
+      carve: { mode: 'clear', key: 'dirt' },
+      props: [{ kind: 'crate', dx: -2, dy: 2 }],
+      chests: [{ dx: 0, dy: 0, table: 'rich' }],
+      spawns: [],
+      /* Il forziere sembra incustodito. Avvicinandosi scatta. */
+      ambush: {
+        radius: 46,
+        spawns: [
+          { role: 'melee', dx: -3, dy: -3 },
+          { role: 'melee', dx: 3, dy: -3 },
+          { role: 'ranged', dx: 0, dy: 4 }
+        ]
+      }
+    },
+
+    ore_pocket: {
+      id: 'ore_pocket', name: 'Sacca di Braceferro', r: 4, weight: 3,
+      biomes: ['cave'],
+      needs: ['beast'],
+      carve: { mode: 'none' },
+      props: [{ kind: 'stalagmite', dx: -2, dy: 1 }, { kind: 'stalagmite', dx: 2, dy: -1 }],
+      nodes: [{ type: 'ore', dx: 0, dy: 0 }, { type: 'ore', dx: 2, dy: 2 }],
+      spawns: [
+        { role: 'beast', dx: -2, dy: -2 },
+        { role: 'beast', dx: 3, dy: 1 }
+      ]
+    }
+  };
+
+  /* Ruoli che un sito può chiedere. Se una zona non definisce un ruolo,
+     si ricade su quello successivo invece di scartare il sito. */
+  D.roleFallback = { bruiser: 'melee', beast: 'melee', ranged: 'melee', melee: null };
 })(typeof window !== 'undefined' ? window : globalThis);

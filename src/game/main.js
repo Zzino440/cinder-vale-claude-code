@@ -92,8 +92,9 @@
     const pos = atPos || W.entryPoint(z, fromZone);
 
     /* Stato mutevole persistente della zona */
-    G.worldAll.zones[zoneId] = G.worldAll.zones[zoneId] || { killed: {}, chests: {}, nodes: {} };
+    G.worldAll.zones[zoneId] = G.worldAll.zones[zoneId] || { killed: {}, chests: {}, nodes: {}, shrines: {} };
     G.world = G.worldAll.zones[zoneId];
+    if (!G.world.shrines) G.world.shrines = {};
 
     /* Applica ciò che è già successo qui */
     for (const c of z.chests) if (G.world.chests[c.key]) c.open = true;
@@ -101,6 +102,7 @@
       const t = G.world.nodes[n.key];
       if (t) n.spent = Math.max(0, t - Date.now() / 1000);
     }
+    for (const sh of z.shrines) if (G.world.shrines[sh.key]) sh.used = true;
 
     G.enemies = z.def.safe ? [] : E.spawnZone(z, G.world, G.p.level, {
       x: pos.x, y: pos.y, radius: ENTRY_SAFE_RADIUS
@@ -212,6 +214,7 @@
     if (!pe.dead) {
       updatePlayer(dt);
       updateInteractions();
+      updateAmbushes();
     } else {
       pe.stateT += dt;
       if (pe.stateT > 1.8 && !CV.UI.isOpen()) CV.UI.openDeath();
@@ -569,6 +572,28 @@
     G.floats.push(E.makeFloat(G.pe.x, G.pe.y - 20, name, '#7cc46a'));
   }
 
+  /* Le imboscate non stanno fra gli interactables: non si aprono con
+     un tasto, scattano avvicinandosi. Un forziere apparentemente
+     incustodito che, avvicinandosi, rivela chi lo sorvegliava. */
+  function updateAmbushes() {
+    const pe = G.pe;
+    for (const a of (G.zone.ambushes || [])) {
+      if (a.done) continue;
+      if (M.dist(pe.x, pe.y, a.x, a.y) > a.r) continue;
+      a.done = true;
+      let spawned = 0;
+      for (const s of a.spawns) {
+        const e = E.spawnAmbushOne(s, G.world, G.p.level);
+        if (e) { G.enemies.push(e); spawned++; }
+      }
+      if (spawned) {
+        CV.Audio.play("telegraph");
+        CV.UI.toast("Imboscata!", "bad");
+        G.entryGraceT = 0;
+      }
+    }
+  }
+
   /* ---------------- Interazioni ---------------- */
   function updateInteractions() {
     const pe = G.pe;
@@ -630,6 +655,20 @@
       case 'forge': CV.UI.openSmith(); break;
       case 'cauldron': CV.UI.openAlchemy(); break;
       case 'sign': CV.UI.toast(t.text || '...'); break;
+      case 'shrine': {
+        const sh = t.ref;
+        if (sh.used) { CV.UI.toast('Il santuario è già stato onorato.'); break; }
+        sh.used = true;
+        G.world.shrines[sh.key] = true;
+        const boons = ['fury', 'stone', 'swift', 'regen'];
+        const key = G.rng.pick(boons);
+        P.applyEffect(p, key, D.effects[key].base, D.effects[key].dur);
+        CV.Audio.play('level');
+        CV.UI.toast('Il santuario dona: ' + D.effects[key].name, 'good');
+        G.floats.push(E.makeFloat(sh.x, sh.y - 14, D.effects[key].name, D.effects[key].color, true));
+        save();
+        break;
+      }
       case 'campfire': {
         p.hp = p.stats.maxHp; p.mp = p.stats.maxMp; p.sp = p.stats.maxSp;
         for (const n of G.zone.nodes) n.spent = 0;

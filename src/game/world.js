@@ -399,6 +399,278 @@
   }
 
   /* ================================================================
+     SITI: luoghi generati proceduralmente.
+
+     Fino a qui la generazione produceva terreno e arredo: spazio, non
+     contenuto. Tutti i punti d'interesse venivano da liste scritte a mano
+     in story.js, quindi uscire dal sentiero non pagava mai. Un sito è una
+     scena — terreno modificato, arredo, una composizione di nemici e una
+     ricompensa — ed è la fonte procedurale che mancava.
+
+     I nemici arrivano per RUOLO (vedi D.sites): la zona decide chi
+     interpreta quel ruolo, così i siti non vanno riscritti quando il
+     bestiario cresce.
+     ================================================================ */
+
+  /* Pavimento e muro coerenti col bioma: un sito di pietra nel bosco
+     stona, e in caverna 'dirt' non esiste nell'atlante come pavimento. */
+  function floorKeyFor(biome, preferred) {
+    if (biome === 'cave') return 'cave_floor';
+    if (biome === 'keep') return 'keep_floor';
+    return preferred || 'dirt';
+  }
+  function wallKeyFor(biome) {
+    return biome === 'keep' ? 'keep_wall' : 'rock_wall';
+  }
+
+  /* Scorre le celle di un disco in tile. */
+  function eachDisc(z, tx, ty, r, fn) {
+    for (let y = ty - r; y <= ty + r; y++)
+      for (let x = tx - r; x <= tx + r; x++) {
+        const dx = x - tx, dy = y - ty;
+        if (dx * dx + dy * dy > r * r) continue;
+        if (inside(z, x, y)) fn(x, y, idx(z, x, y));
+      }
+  }
+
+  /* Rimuove gli oggetti già sparsi dentro l'area del sito.
+     Serve davvero: alberi e rocce sono piazzati dai generatori di bioma
+     PRIMA dei siti, e spianare il terreno senza togliere l'albero
+     lascerebbe una collisione invisibile in mezzo alla radura. */
+  function clearProps(z, cx, cy, rPx) {
+    const kept = [];
+    for (const p of z.props) {
+      if (M.dist(p.x, p.y, cx, cy) > rPx) { kept.push(p); continue; }
+      /* Libera anche le celle che l'oggetto rendeva solide */
+      if (p.col) {
+        const x0 = Math.floor(p.col.x / T), x1 = Math.floor((p.col.x + p.col.w) / T);
+        const y0 = Math.floor(p.col.y / T), y1 = Math.floor((p.col.y + p.col.h) / T);
+        for (let y = y0; y <= y1; y++)
+          for (let x = x0; x <= x1; x++)
+            if (inside(z, x, y)) z.solid[idx(z, x, y)] = 0;
+      }
+    }
+    z.props = kept;
+  }
+
+  /* La cella libera più vicina: un nemico o un nodo dichiarato in
+     posizione relativa può cadere su roccia quando il sito non spiana. */
+  function nearestFree(z, tx, ty, maxR) {
+    for (let r = 0; r <= (maxR || 4); r++) {
+      for (let y = ty - r; y <= ty + r; y++)
+        for (let x = tx - r; x <= tx + r; x++) {
+          if (Math.max(Math.abs(x - tx), Math.abs(y - ty)) !== r) continue;
+          if (!inside(z, x, y) || z.solid[idx(z, x, y)]) continue;
+          const key = A.TILE_KEYS[z.tiles[idx(z, x, y)]];
+          if (key === 'water' || key === 'lava') continue;
+          return { tx: x, ty: y };
+        }
+    }
+    return null;
+  }
+
+  /* Il sito può stare qui? Il controllo è severo di proposito: un sito
+     che tappa un corridoio o inghiotte un PNG costa più di un sito in meno. */
+  function siteFits(z, s, tx, ty, busy, placed) {
+    const r = s.r;
+    if (tx - r < 3 || ty - r < 3 || tx + r > z.w - 4 || ty + r > z.h - 4) return false;
+    /* Mai a ridosso di un varco: si entrerebbe dentro uno scontro */
+    for (const e of (z.def.exits || []))
+      if (M.dist(tx, ty, e.tx, e.ty) < r + 8) return false;
+    for (const o of placed)
+      if (M.dist(tx, ty, o.tx, o.ty) < r + o.r + 3) return false;
+    /* Il centro dev'essere calpestabile: niente siti dentro la roccia */
+    if (z.solid[idx(z, tx, ty)]) return false;
+
+    let cells = 0, solid = 0, bad = 0, occupied = 0;
+    eachDisc(z, tx, ty, r, (x, y, i) => {
+      cells++;
+      if (z.solid[i]) solid++;
+      if (busy[i]) occupied++;
+      const key = A.TILE_KEYS[z.tiles[i]];
+      if (key === 'water' || key === 'lava') bad++;
+    });
+    if (!cells || bad || occupied) return false;
+    /* In caverna il sito deve stare in uno spazio già scavato: scavarne uno
+       nuovo nella roccia piena produrrebbe una sala irraggiungibile. */
+    const maxSolid = z.def.biome === 'cave' ? 0.40 : 0.55;
+    return solid / cells <= maxSolid;
+  }
+
+  /* Costruisce un oggetto d'arredo del sito riusando la tabella DECOR
+     già usata da scatterDecor, più i pochi sprite fissi che servono. */
+  function siteProp(z, spec, tx, ty, rng) {
+    const px = tx * T + 8;
+    let img, oy, sway = 0, col = null, cw = 0, ch = 0;
+
+    if (spec.kind === 'campfire') {
+      img = A.sprite('campfire'); oy = 16; cw = 11; ch = 9;
+    } else if (spec.kind === 'pillar') {
+      img = A.pillar(); oy = img.height; cw = 14; ch = 14;
+    } else if (spec.kind === 'altar') {
+      img = A.gravestone(0); oy = 17; cw = 9; ch = 5;
+    } else {
+      const d = DECOR[spec.kind];
+      if (!d) return null;
+      /* Un oggetto solido in un passaggio stretto lo chiuderebbe */
+      if (d.solid && !openEnough(z, tx, ty)) return null;
+      img = d.make(rng.int(0, d.n - 1));
+      oy = d.oy || img.height;
+      sway = d.sway;
+      if (d.solid) { cw = d.cw; ch = d.ch; }
+    }
+
+    const py = ty * T + Math.min(16, oy);
+    if (cw) col = { x: px - cw / 2, y: ty * T + 16 - ch, w: cw, h: ch };
+    const o = { kind: spec.kind, img: img, sway: sway, x: px, y: py,
+                ox: img.width / 2, oy: oy, col: col };
+    if (col) z.solid[idx(z, tx, ty)] = 1;
+    z.props.push(o);
+    return o;
+  }
+
+  function placeSites(z, rng) {
+    const def = z.def;
+    const want = def.siteCount || 0;
+    if (!want || !D.sites) return;
+
+    const roles = def.roles || {};
+    /* Un ruolo non definito ricade su quello successivo invece di far
+       scartare il sito: così una rovina esiste anche dove non ci sono
+       nemici pesanti, con un nemico comune irrobustito. */
+    const resolveRole = (role) => {
+      let r = role, guard = 0;
+      while (r && guard++ < 4) {
+        if (roles[r]) return roles[r];
+        r = D.roleFallback[r];
+      }
+      return null;
+    };
+
+    const pool = [];
+    for (const id in D.sites) {
+      const s = D.sites[id];
+      if (s.biomes.indexOf(def.biome) < 0) continue;
+      if ((s.needs || []).some(role => !resolveRole(role))) continue;
+      for (let i = 0; i < (s.weight || 1); i++) pool.push(s);
+    }
+    if (!pool.length) return;
+
+    const busy = busyMap(z);
+    let guard = 0;
+    while (z.sites.length < want && guard++ < want * 80) {
+      const s = rng.pick(pool);
+      const tx = rng.int(s.r + 3, z.w - s.r - 4);
+      const ty = rng.int(s.r + 3, z.h - s.r - 4);
+      if (!siteFits(z, s, tx, ty, busy, z.sites)) continue;
+      buildSite(z, s, tx, ty, z.sites.length, rng, resolveRole);
+      z.sites.push({ id: s.id, name: s.name, tx: tx, ty: ty, r: s.r });
+      /* L'area occupata vale anche per i siti successivi */
+      eachDisc(z, tx, ty, s.r + 1, (x, y, i) => { busy[i] = 1; });
+    }
+  }
+
+  function buildSite(z, s, tx, ty, index, rng, resolveRole) {
+    const biome = z.def.biome;
+    const floor = floorKeyFor(biome, s.carve && s.carve.key);
+    const prefix = z.id + ':site' + index;
+
+    /* 1. Si libera il terreno PRIMA di modificarlo, così le collisioni
+          degli alberi rimossi spariscono insieme agli alberi. */
+    clearProps(z, tx * T + 8, ty * T + 8, (s.r + 0.5) * T);
+
+    /* 2. Terreno */
+    const mode = s.carve ? s.carve.mode : 'none';
+    if (mode === 'clear') {
+      eachDisc(z, tx, ty, s.r, (x, y) => setTile(z, x, y, floor, false));
+    } else if (mode === 'ring') {
+      eachDisc(z, tx, ty, s.r - 1, (x, y) => setTile(z, x, y, floor, false));
+      const wall = wallKeyFor(biome);
+      const steps = Math.round(2 * Math.PI * (s.r - 1) * 1.7);
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        if (rng.next() < (s.carve.gaps || 0.4)) continue;   /* i varchi */
+        setTile(z, Math.round(tx + Math.cos(a) * (s.r - 1)),
+                   Math.round(ty + Math.sin(a) * (s.r - 1)), wall, true);
+      }
+    }
+
+    /* 3. Arredo */
+    for (const p of (s.props || [])) {
+      const px = tx + p.dx, py = ty + p.dy;
+      if (!inside(z, px, py)) continue;
+      const o = siteProp(z, p, px, py, rng);
+      /* Il fuoco di un accampamento ripulito diventa un punto di sosta:
+         è la ricompensa per aver sgomberato la scena. */
+      if (o && p.rest) {
+        z.interactables.push({ kind: 'campfire', x: o.x, y: o.y - 8, r: 26, label: 'Riposa' });
+      }
+    }
+
+    /* 4. Ricompense */
+    (s.chests || []).forEach((c, j) => {
+      const spot = nearestFree(z, tx + c.dx, ty + c.dy, 3);
+      if (!spot) return;
+      clearAround(z, spot.tx, spot.ty, 1, floor);
+      const o = { key: prefix + 'c' + j, table: c.table,
+                  x: spot.tx * T + 8, y: spot.ty * T + 14, open: false };
+      z.chests.push(o);
+      z.interactables.push({ kind: 'chest', ref: o, x: o.x, y: o.y - 6, r: 26, label: 'Apri' });
+    });
+
+    (s.nodes || []).forEach((n, j) => {
+      const spot = nearestFree(z, tx + n.dx, ty + n.dy, 3);
+      if (!spot) return;
+      clearAround(z, spot.tx, spot.ty, 1, floor);
+      const o = { key: prefix + 'n' + j, type: n.type,
+                  x: spot.tx * T + 8, y: spot.ty * T + 14, spent: 0 };
+      z.nodes.push(o);
+      z.interactables.push({ kind: 'node', ref: o, x: o.x, y: o.y - 6, r: 24, label: 'Raccogli' });
+    });
+
+    if (s.shrine) {
+      const spot = nearestFree(z, tx + s.shrine.dx, ty + s.shrine.dy, 3);
+      if (spot) {
+        clearAround(z, spot.tx, spot.ty, 1, floor);
+        siteProp(z, { kind: 'altar' }, spot.tx, spot.ty, rng);
+        const o = { key: prefix + 's', x: spot.tx * T + 8, y: spot.ty * T + 14, used: false };
+        z.shrines.push(o);
+        z.interactables.push({ kind: 'shrine', ref: o, x: o.x, y: o.y - 6, r: 26, label: 'Prega' });
+      }
+    }
+
+    /* 5. Nemici: composizione, non posizioni a caso. */
+    const mkSpawn = (sp, j, keyPrefix) => {
+      const id = resolveRole(sp.role);
+      if (!id) return null;
+      const spot = nearestFree(z, tx + sp.dx, ty + sp.dy, 4);
+      if (!spot) return null;
+      return {
+        key: keyPrefix + j, id: id,
+        x: spot.tx * T + 8, y: spot.ty * T + 8,
+        hpMult: sp.hpMult || 1, dmgMult: sp.dmgMult || 1, sightMult: sp.sightMult || 1
+      };
+    };
+
+    (s.spawns || []).forEach((sp, j) => {
+      const e = mkSpawn(sp, j, prefix + ':e');
+      if (e) z.siteSpawns.push(e);
+    });
+
+    if (s.ambush) {
+      const list = [];
+      (s.ambush.spawns || []).forEach((sp, j) => {
+        const e = mkSpawn(sp, j, prefix + ':a');
+        if (e) list.push(e);
+      });
+      if (list.length) {
+        z.ambushes.push({ x: tx * T + 8, y: ty * T + 8,
+                          r: s.ambush.radius || 46, spawns: list, done: false });
+      }
+    }
+  }
+
+  /* ================================================================
      COSTRUZIONE DELLA ZONA
      ================================================================ */
   function generate(zoneId) {
@@ -411,6 +683,7 @@
       variant: new Uint8Array(def.w * def.h),
       solid: new Uint8Array(def.w * def.h),
       props: [], chests: [], nodes: [], npcs: [], exits: [], interactables: [],
+      sites: [], siteSpawns: [], ambushes: [], shrines: [],
       spawnDefs: def.spawns || [], namedDefs: def.named || []
     };
     const rng = new CV.Rng(def.seed);
@@ -423,6 +696,10 @@
       case 'keep': genKeep(z, rng); break;
       default: genMoor(z, rng);
     }
+
+    /* Siti: dopo il bioma, prima dell'arredo. Un accampamento deve poter
+       spianare la sua radura senza che l'erba ci sia già cresciuta sopra. */
+    placeSites(z, rng);
 
     /* Arredo: dopo il terreno, prima dei punti d'interesse, così l'erba
        non spunta in mezzo a un forziere o davanti a un mercante. */

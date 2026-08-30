@@ -17,7 +17,7 @@
   D.zones = {
     ashford: {
       id: 'ashford', name: 'Ashford', subtitle: 'Villaggio della Valle',
-      biome: 'village', w: 48, h: 48, seed: 1201, safe: true,
+      biome: 'village', w: 48, h: 48, seed: 1201, safe: true, siteCount: 0,
       music: 'calm',
       exits: [{ to: 'cindermoor', tx: 24, ty: 46, from: 'north', label: 'Brughiera di Cenere' }],
       nodes: [{ type: 'herb', tx: 8, ty: 12 }, { type: 'herb', tx: 40, ty: 9 }],
@@ -32,6 +32,8 @@
     cindermoor: {
       id: 'cindermoor', name: 'Brughiera di Cenere', subtitle: 'Terre Basse',
       biome: 'moor', w: 64, h: 64, seed: 4407,
+      siteCount: 5,
+      roles: { melee: 'bandit', ranged: 'bandit_archer', beast: 'ash_wolf' },
       music: 'tense',
       exits: [
         { to: 'ashford', tx: 32, ty: 62, from: 'south', label: 'Ashford' },
@@ -40,9 +42,9 @@
           lockedText: 'Un cancello di ferro sbarra il pozzo. Serve la chiave della miniera.' }
       ],
       spawns: [
-        { id: 'ash_wolf', count: 7 },
-        { id: 'bandit', count: 5 },
-        { id: 'bandit_archer', count: 2 }
+        { id: 'ash_wolf', count: 3 },
+        { id: 'bandit', count: 2 },
+        { id: 'bandit_archer', count: 1 }
       ],
       named: [{ id: 'bandit', tx: 47, ty: 46, name: 'Korr lo Sfregiato', hpMult: 2.6, dmgMult: 1.5, drop: 'mine_key', boostLoot: true }],
       nodes: [
@@ -55,6 +57,8 @@
     blackroot: {
       id: 'blackroot', name: 'Bosco di Radicenera', subtitle: 'Sotto le Fronde Morte',
       biome: 'forest', w: 64, h: 64, seed: 8813,
+      siteCount: 6,
+      roles: { melee: 'bandit', ranged: 'bandit_archer', beast: 'cave_spider' },
       music: 'tense',
       exits: [
         { to: 'cindermoor', tx: 61, ty: 32, from: 'east', label: 'Brughiera di Cenere' },
@@ -62,10 +66,10 @@
           lockedText: 'Il portale è sigillato da un cerchio inciso. Manca il Sigillo del Rogo.' }
       ],
       spawns: [
-        { id: 'cave_spider', count: 8 },
-        { id: 'bandit', count: 4 },
-        { id: 'bandit_archer', count: 3 },
-        { id: 'ash_wolf', count: 3 }
+        { id: 'cave_spider', count: 3 },
+        { id: 'bandit', count: 2 },
+        { id: 'bandit_archer', count: 1 },
+        { id: 'ash_wolf', count: 1 }
       ],
       nodes: [
         { type: 'herb', tx: 16, ty: 20 }, { type: 'herb', tx: 30, ty: 44 }, { type: 'herb', tx: 48, ty: 18 },
@@ -76,12 +80,14 @@
     emberdeep: {
       id: 'emberdeep', name: 'Miniera Profonda', subtitle: 'Le Vene di Braceferro',
       biome: 'cave', w: 56, h: 56, seed: 3355, dark: true,
+      siteCount: 4,
+      roles: { melee: 'revenant', ranged: 'ash_cultist', beast: 'cave_spider', bruiser: 'revenant' },
       music: 'dread',
       exits: [{ to: 'cindermoor', tx: 28, ty: 53, from: 'south', label: 'Superficie' }],
       spawns: [
-        { id: 'cave_spider', count: 9 },
-        { id: 'revenant', count: 5 },
-        { id: 'ash_cultist', count: 2 }
+        { id: 'cave_spider', count: 4 },
+        { id: 'revenant', count: 2 },
+        { id: 'ash_cultist', count: 1 }
       ],
       named: [{ id: 'revenant', tx: 28, ty: 8, name: 'Il Primo Sepolto', hpMult: 2.2, dmgMult: 1.4, drop: 'keep_seal', boostLoot: true }],
       nodes: [
@@ -94,11 +100,13 @@
     pyre_keep: {
       id: 'pyre_keep', name: 'Rocca del Rogo', subtitle: 'Dove la Cenere Iniziò',
       biome: 'keep', w: 48, h: 56, seed: 9091,
+      siteCount: 3,
+      roles: { melee: 'revenant', ranged: 'ash_cultist', bruiser: 'revenant' },
       music: 'dread',
       exits: [{ to: 'blackroot', tx: 24, ty: 54, from: 'south', label: 'Bosco di Radicenera' }],
       spawns: [
-        { id: 'ash_cultist', count: 5 },
-        { id: 'revenant', count: 4 }
+        { id: 'ash_cultist', count: 3 },
+        { id: 'revenant', count: 2 }
       ],
       named: [{ id: 'vaelrik', tx: 24, ty: 9, name: 'Vaelrik, il Rogo', hpMult: 1, dmgMult: 1, boostLoot: true, boss: true }],
       chests: [{ tx: 12, ty: 16, table: 'rich' }, { tx: 36, ty: 16, table: 'rich' }],

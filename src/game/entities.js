@@ -56,6 +56,7 @@
       homeX: x, homeY: y, targetX: x, targetY: y,
       wanderT: 0, flash: 0, knockX: 0, knockY: 0,
       aggro: false, alertT: 0, stagger: 0, bleed: 0, poison: 0, hitT: 0,
+      sightMult: opts.sightMult || 1,
       lunge: 0, phase: 0, special: 0, dead: false, deadT: 0,
       drop: opts.drop || null, boostLoot: !!opts.boostLoot, boss: !!opts.boss,
       elite: !!opts.name
@@ -93,6 +94,17 @@
         const e = E.makeEnemy(s.id, spot.x, spot.y, { key: key, levelScale: levelScale });
         if (e) out.push(e);
       }
+    });
+
+    /* Nemici piazzati dai siti (composizioni, non posizioni a caso):
+       vedi W.placeSites. Gia in posizione, gia con il ruolo risolto. */
+    (z.siteSpawns || []).forEach((s) => {
+      if (killed[s.key]) return;
+      const e = E.makeEnemy(s.id, s.x, s.y, {
+        key: s.key, hpMult: s.hpMult, dmgMult: s.dmgMult,
+        sightMult: s.sightMult, levelScale: levelScale
+      });
+      if (e) out.push(e);
     });
     return out;
   };
@@ -396,7 +408,8 @@
     /* Percezione */
     /* All'ingresso il giocatore ha un breve tempo per leggere la scena.
        Un'azione offensiva azzera entryGraceT dal ciclo principale. */
-    if (!pe.dead && G.entryGraceT <= 0 && dist < def.sight) { e.aggro = true; e.alertT = 5; }
+    const sight = def.sight * (e.sightMult || 1);
+    if (!pe.dead && G.entryGraceT <= 0 && dist < sight) { e.aggro = true; e.alertT = 5; }
     else if (e.alertT > 0) { e.alertT -= dt; if (e.alertT <= 0) e.aggro = false; }
 
     e.stateT += dt;
@@ -610,6 +623,18 @@
       d.y += d.vy * dt;
       d.vy = Math.min(0, d.vy + 120 * dt);
     }
+  };
+
+    /* Genera un nemico di imboscata (chiamata da main.js al momento
+     dell innesco). Rispetta la stessa persistenza killed degli altri. */
+  E.spawnAmbushOne = function (s, worldState, playerLevel) {
+    const killed = worldState.killed || {};
+    if (killed[s.key]) return null;
+    const levelScale = Math.max(0, (playerLevel - 1) * 0.06);
+    return E.makeEnemy(s.id, s.x, s.y, {
+      key: s.key, hpMult: s.hpMult, dmgMult: s.dmgMult,
+      sightMult: s.sightMult, levelScale: levelScale
+    });
   };
 
   CV.Ent = E;
