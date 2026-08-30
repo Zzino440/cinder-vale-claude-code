@@ -50,6 +50,18 @@
     musicGain = ctx.createGain();
     musicGain.gain.value = 0.28;
 
+    /* Swell lentissimo (ciclo di 80s): senza, anche un loop corretto
+       resta sempre alla stessa intensità e diventa monotono in fretta.
+       Lo stesso valore guida anche le scelte in tick() (vedi setMood). */
+    const swellLfo = ctx.createOscillator();
+    swellLfo.type = 'sine';
+    swellLfo.frequency.value = 1 / 80;
+    const swellDepth = ctx.createGain();
+    swellDepth.gain.value = 0.06;
+    swellLfo.connect(swellDepth);
+    swellDepth.connect(musicGain.gain);
+    swellLfo.start();
+
     /* Filtro che respira lentamente: senza, un pad tenuto per secondi
        suona statico e fermo. L'LFO apre e chiude il taglio nel tempo. */
     const musicFilter = ctx.createBiquadFilter();
@@ -203,18 +215,24 @@
      basso con ritmo proprio, e una linea melodica sparsa che pesca
      dall'accordo corrente invece di ripetere sempre la stessa scala. */
   const MOODS = {
-    calm:  { root: 196.0, chords: [[0, 3, 7], [5, 8, 12], [7, 10, 14], [-2, 3, 7]], step: 1000, pad: 'sine', bass: 'triangle', lead: 'triangle', vol: 0.10 },
-    tense: { root: 174.6, chords: [[0, 1, 7], [-1, 2, 8], [0, 1, 7], [1, 2, 9]], step: 820, pad: 'sine', bass: 'sine', lead: 'triangle', vol: 0.09 },
-    dread: { root: 130.8, chords: [[0, 1, 6], [0, 1, 6], [-2, 1, 6], [0, 1, 6]], step: 760, pad: 'sine', bass: 'sine', lead: 'sine', vol: 0.11 }
+    calm:  { root: 196.0, chords: [[0, 3, 7], [5, 8, 12], [7, 10, 14], [3, 7, 10], [-2, 3, 7], [5, 8, 12], [2, 5, 9], [7, 10, 14]], step: 1000, pad: 'triangle', bass: 'triangle', lead: 'triangle', vol: 0.10 },
+    tense: { root: 174.6, chords: [[0, 1, 7], [-1, 2, 8], [0, 1, 7], [2, 3, 9], [1, 2, 9], [-1, 2, 8], [0, 1, 7], [-2, 1, 6]], step: 820, pad: 'triangle', bass: 'sine', lead: 'triangle', vol: 0.09 },
+    dread: { root: 130.8, chords: [[0, 1, 6], [0, 1, 6], [-2, 1, 6], [0, 1, 6], [0, 1, 6], [1, 2, 7], [0, 1, 6], [-2, 1, 6]], step: 760, pad: 'sine', bass: 'sine', lead: 'sine', vol: 0.11 }
   };
 
   /* Due oscillatori scordati di pochi cent sulla stessa nota, panning
-     leggermente separato: è il trucco più semplice per non suonare
-     "sintetico e secco" e dare un minimo di ampiezza stereo. */
-  function padVoice(freq, dur, type, vol, bus) {
+     leggermente separato (chorus + stereo width) più un filo di
+     sawtooth per corpo armonico. Lo shimmer un'ottava sopra entra
+     solo nei momenti "alti" dello swell (bright), invece di essere
+     sempre presente: dà respiro invece di un timbro fisso. */
+  function padVoice(freq, dur, type, vol, bus, bright) {
     [[-6, -0.35], [6, 0.35]].forEach(([det, pan]) => {
-      tone({ freq, detune: det, pan, dur, type, vol: vol * 0.45, attack: 0.35, sustain: 0.55, bus, reverb: 0.5 });
+      tone({ freq, detune: det, pan, dur, type, vol: vol * 0.42, attack: 0.35, sustain: 0.55, bus, reverb: 0.5 });
     });
+    tone({ freq, detune: 3, dur, type: 'sawtooth', vol: vol * 0.14, attack: 0.4, sustain: 0.5, bus, reverb: 0.45 });
+    if (bright > 0.15) {
+      tone({ freq: freq * 2, detune: -4, dur: dur * 0.85, type: 'sine', vol: vol * 0.18 * bright, attack: 0.6, sustain: 0.4, bus, reverb: 0.6, pan: 0.15 });
+    }
   }
 
   /* Un solo clock a battito guida le tre voci insieme, invece di tre
@@ -232,25 +250,32 @@
       if (muted) { beat++; return; }
       const chord = m.chords[Math.floor(beat / beatsPerChord) % m.chords.length];
       const inChord = beat % beatsPerChord;
+      /* 0..1 su un ciclo di 80s: stessa fase del respiro di volume
+         impostato in ensure(). Guida quanto "piena" suona la musica
+         in ogni momento, invece di restare sempre uguale a se stessa. */
+      const swell = 0.5 + 0.5 * Math.sin(ctx.currentTime * (2 * Math.PI / 80));
 
       if (inChord === 0) {
         const dur = beatsPerChord * m.step / 1000 * 1.05;
-        chord.forEach((semi) => padVoice(m.root * Math.pow(2, semi / 12), dur, m.pad, m.vol, musicGain));
+        chord.forEach((semi) => padVoice(m.root * Math.pow(2, semi / 12), dur, m.pad, m.vol, musicGain, swell));
       }
 
       /* Basso ritmico: tonica - pausa - quinta - pausa. Nota corta e
-         percussiva, non una nota tenuta: è quello che dà groove. */
+         percussiva, non una nota tenuta: è quello che dà groove. Volume
+         leggermente randomizzato per nota: sempre identico suona meccanico. */
       if (inChord === 0 || inChord === 2) {
         const degree = inChord === 2 ? chord[Math.min(2, chord.length - 1)] : chord[0];
         const bassFreq = m.root * Math.pow(2, (degree - 12) / 12);
-        tone({ freq: bassFreq, dur: m.step / 1000 * 0.55, type: m.bass, vol: m.vol, attack: 0.012, bus: musicGain, reverb: 0.15 });
+        const vel = 0.85 + Math.random() * 0.3;
+        tone({ freq: bassFreq, dur: m.step / 1000 * 0.55, type: m.bass, vol: m.vol * vel, attack: 0.012, bus: musicGain, reverb: 0.15 });
       }
 
-      if (Math.random() < 0.35) {
+      if (Math.random() < 0.18 + swell * 0.35) {
         const semi = chord[Math.floor(Math.random() * chord.length)] + 12;
         const freq = m.root * Math.pow(2, semi / 12);
         const pan = Math.random() < 0.5 ? -0.2 : 0.2;
-        tone({ freq, dur: m.step / 1000 * 0.9, type: m.lead, vol: m.vol * 0.6, attack: 0.02, pan, bus: musicGain, reverb: 0.4 });
+        const vel = 0.5 + Math.random() * 0.3;
+        tone({ freq, dur: m.step / 1000 * 0.9, type: m.lead, vol: m.vol * vel, attack: 0.02, pan, bus: musicGain, reverb: 0.4 });
       }
 
       beat++;

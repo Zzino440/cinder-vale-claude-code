@@ -537,6 +537,21 @@
       if (avoidX != null && M.dist(px, py, avoidX, avoidY) < (minDist || 140)) continue;
       return { x: px, y: py };
     }
+    /* Se i tentativi casuali non bastano, cerca sistematicamente prima di
+       rinunciare: l'area sicura non deve essere violata da un fallback. */
+    if (avoidX != null) {
+      const limit = minDist || 140;
+      for (let ty = 3; ty <= z.h - 4; ty++) {
+        for (let tx = 3; tx <= z.w - 4; tx++) {
+          const px = tx * T + 8, py = ty * T + 8;
+          if (blocked(z, px, py, 8)) continue;
+          const key = A.TILE_KEYS[z.tiles[idx(z, tx, ty)]];
+          if (key === 'water' || key === 'lava') continue;
+          if (M.dist(px, py, avoidX, avoidY) >= limit) return { x: px, y: py };
+        }
+      }
+      return null;
+    }
     return { x: z.pxW / 2, y: z.pxH / 2 };
   }
 

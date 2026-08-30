@@ -63,7 +63,7 @@
   };
 
   /* Popola una zona rispettando ciò che è già stato ucciso. */
-  E.spawnZone = function (z, worldState, playerLevel) {
+  E.spawnZone = function (z, worldState, playerLevel, safeArea) {
     const out = [];
     const rng = new CV.Rng(z.def.seed + 17);
     const killed = (worldState.killed = worldState.killed || {});
@@ -83,7 +83,13 @@
       for (let i = 0; i < s.count; i++) {
         const key = z.id + ':' + si + ':' + i;
         if (killed[key]) continue;
-        const spot = W.findFreeSpot(z, rng);
+        const spot = W.findFreeSpot(
+          z, rng,
+          safeArea && safeArea.x,
+          safeArea && safeArea.y,
+          safeArea && safeArea.radius
+        );
+        if (!spot) continue;
         const e = E.makeEnemy(s.id, spot.x, spot.y, { key: key, levelScale: levelScale });
         if (e) out.push(e);
       }
@@ -388,7 +394,9 @@
     const toPlayer = Math.atan2(pe.y - e.y, pe.x - e.x);
 
     /* Percezione */
-    if (!pe.dead && dist < def.sight) { e.aggro = true; e.alertT = 5; }
+    /* All'ingresso il giocatore ha un breve tempo per leggere la scena.
+       Un'azione offensiva azzera entryGraceT dal ciclo principale. */
+    if (!pe.dead && G.entryGraceT <= 0 && dist < def.sight) { e.aggro = true; e.alertT = 5; }
     else if (e.alertT > 0) { e.alertT -= dt; if (e.alertT <= 0) e.aggro = false; }
 
     e.stateT += dt;

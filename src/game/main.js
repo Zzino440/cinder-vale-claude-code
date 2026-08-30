@@ -14,12 +14,14 @@
 
   const SAVE_KEY = 'cindervale.save.v1';
   const SET_KEY = 'cindervale.settings.v1';
+  const ENTRY_SAFE_RADIUS = 280;
+  const ENTRY_ORIENT_SECONDS = 2;
 
   /* Stato globale della partita */
   const G = {
     p: null, pe: null, zone: null, world: null, worldAll: null,
     enemies: [], projectiles: [], particles: [], floats: [], drops: [], decals: [],
-    freezeT: 0,
+    freezeT: 0, entryGraceT: 0,
     rng: new CV.Rng(Date.now() & 0xffffff),
     running: false, paused: true,
     shakeAmt: 0, shakeT: 0,
@@ -85,6 +87,10 @@
     G.zone = z;
     CV.Render.onZone(z);
 
+    /* Il punto reale d'ingresso serve anche a tenere liberi gli immediati
+       dintorni: vale sia per i varchi sia per la posizione di un salvataggio. */
+    const pos = atPos || W.entryPoint(z, fromZone);
+
     /* Stato mutevole persistente della zona */
     G.worldAll.zones[zoneId] = G.worldAll.zones[zoneId] || { killed: {}, chests: {}, nodes: {} };
     G.world = G.worldAll.zones[zoneId];
@@ -96,11 +102,13 @@
       if (t) n.spent = Math.max(0, t - Date.now() / 1000);
     }
 
-    G.enemies = z.def.safe ? [] : E.spawnZone(z, G.world, G.p.level);
+    G.enemies = z.def.safe ? [] : E.spawnZone(z, G.world, G.p.level, {
+      x: pos.x, y: pos.y, radius: ENTRY_SAFE_RADIUS
+    });
     G.projectiles = []; G.particles = []; G.floats = []; G.drops = []; G.decals = [];
     G.freezeT = 0;
+    G.entryGraceT = z.def.safe ? 0 : ENTRY_ORIENT_SECONDS;
 
-    const pos = atPos || W.entryPoint(z, fromZone);
     if (!G.pe) G.pe = E.makePlayer(G.p, pos.x, pos.y);
     else { G.pe.x = pos.x; G.pe.y = pos.y; G.pe.state = 'idle'; G.pe.stateT = 0; G.pe.dead = false; }
 
@@ -209,6 +217,7 @@
       if (pe.stateT > 1.8 && !CV.UI.isOpen()) CV.UI.openDeath();
     }
 
+    if (G.entryGraceT > 0) G.entryGraceT = Math.max(0, G.entryGraceT - dt);
     for (const e of G.enemies) E.updateEnemy(G, e, dt);
     /* Rimuove i corpi dissolti */
     for (let i = G.enemies.length - 1; i >= 0; i--) if (G.enemies[i].dead && G.enemies[i].deadT > 1.2) G.enemies.splice(i, 1);
@@ -491,6 +500,7 @@
     pe.blocking = false;
     pe.blockHeld = false;
     pe.face = M.facingFromVec(Math.cos(dir), Math.sin(dir));
+    G.entryGraceT = 0;
 
     /* Passo in avanti se il bersaglio è appena fuori portata: evita i
        colpi che mancano per due pixel senza allungare l'arma. */
@@ -531,6 +541,7 @@
     pe.blocking = false;
     pe.blockHeld = false;
     pe.face = M.facingFromVec(Math.cos(dir), Math.sin(dir));
+    G.entryGraceT = 0;
 
     const w = P.equipped(p, 'weapon');
     const dmg = (12 + p.skills.destruction.lvl * 0.55 + (w ? (w.magic || 0) : 0)) * p.stats.magicPower;
