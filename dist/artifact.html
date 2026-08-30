@@ -8350,7 +8350,7 @@ button:disabled { opacity: .4; }
     if (pe.state === 'attack' || pe.state === 'dodge') return false;
     const w = P.equipped(p, 'weapon');
     const cost = (w ? w.stamCost : 8);
-    if (p.sp < cost * 0.5) { CV.Audio.play('error'); return false; }
+    if (p.sp < cost * 0.5) { pe.bufAttack = 0; return false; }
     p.sp = Math.max(0, p.sp - cost);
     pe.state = 'attack';
     pe.stateT = 0;
@@ -8378,7 +8378,7 @@ button:disabled { opacity: .4; }
     const p = G.p, pe = G.pe;
     if (pe.state === 'dodge') return false;
     const cost = CV.Hud.dodgeCost(p);
-    if (p.sp < cost) { CV.Audio.play('error'); return false; }
+    if (p.sp < cost) { pe.bufDodge = 0; return false; }
     p.sp -= cost;
     pe.state = 'dodge';
     pe.stateT = 0;
